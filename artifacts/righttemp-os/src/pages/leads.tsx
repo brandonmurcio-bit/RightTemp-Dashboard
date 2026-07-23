@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import { useGetLeads, useCreateLead, getGetLeadsQueryKey, getGetDashboardStatsQueryKey } from '@workspace/api-client-react';
-import type { LeadInput } from '@workspace/api-client-react/src/generated/api.schemas';
+import type { LeadInput } from '@workspace/api-client-react';
 import { useQueryClient } from '@tanstack/react-query';
 import { Link } from 'wouter';
 import { Search, Plus, Filter, MoreHorizontal, Phone, Mail } from 'lucide-react';
