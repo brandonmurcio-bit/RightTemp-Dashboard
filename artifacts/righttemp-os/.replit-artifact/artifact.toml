@@ -1,0 +1,27 @@
+kind = "web"
+previewPath = "/"
+title = "RightTemp OS"
+version = "1.0.0"
+id = "artifacts/righttemp-os"
+router = "path"
+
+[[services]]
+name = "web"
+paths = [ "/" ]
+localPort = 23825
+
+[services.development]
+run = "pnpm --filter @workspace/righttemp-os run dev"
+
+[services.production]
+build = [ "pnpm", "--filter", "@workspace/righttemp-os", "run", "build" ]
+serve = "static"
+publicDir = "artifacts/righttemp-os/dist/public"
+
+[[services.production.rewrites]]
+from = "/*"
+to = "/index.html"
+
+[services.env]
+PORT = "23825"
+BASE_PATH = "/"
