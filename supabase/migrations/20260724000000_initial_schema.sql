@@ -13,18 +13,44 @@
 -- Auth:
 --   Row Level Security — every business-data policy checks that the
 --   authenticated user is a member of the row's owning organization via
---   the is_org_member() helper.  Multi-tenant by design.
+--   the is_org_member() helper. Multi-tenant by design.
+--
+-- Audit fixes applied (all in this single file):
+--   FIX-1  set_updated_at / sync_job_cost_total — added SET search_path = public
+--          (Supabase security advisor requirement for all functions)
+--   FIX-2  is_org_member / is_org_role — LANGUAGE sql functions validate table
+--          references at CREATE time; moved to AFTER organization_members table
+--   FIX-3  organizations RLS policies — moved to AFTER helper functions exist
+--   FIX-4  organization_members SELECT policy — replaced inline self-referencing
+--          subquery (infinite recursion) with get_my_org_ids() SECURITY DEFINER
+--   FIX-5  organization_members INSERT policy — replaced inline NOT EXISTS
+--          self-referencing subquery (infinite recursion) with org_has_no_members()
+--          SECURITY DEFINER
+--   FIX-6  Storage policies — replaced hard (string_to_array(name,'/'))[1]::uuid
+--          cast (throws on any non-UUID path segment) with storage_org_id() helper
+--          that regex-guards before casting and returns NULL on mismatch
+--
+-- Notes:
+--   gen_random_uuid() — built-in since Postgres 13; no extension needed on PG15
+--   profiles DELETE — intentionally no policy; row is removed via ON DELETE CASCADE
+--     from auth.users, not by direct DELETE from application code
+--   job_costs triggers — trg_job_costs_sync_total fires before trg_job_costs_updated_at
+--     (alphabetical BEFORE-trigger order); total_cost is computed first, then
+--     updated_at is stamped — correct order
 -- =============================================================================
 
 
 -- ===========================================================================
--- UTILITY FUNCTIONS
+-- SECTION 1: UTILITY TRIGGER FUNCTIONS
+-- No table references — safe to define first.
+-- All have SET search_path = public (FIX-1).
 -- ===========================================================================
 
--- Auto-stamp updated_at on every mutation
+-- Stamps updated_at on every row mutation.
 CREATE OR REPLACE FUNCTION public.set_updated_at()
 RETURNS TRIGGER
 LANGUAGE plpgsql
+SET search_path = public                          -- FIX-1
 AS $$
 BEGIN
   NEW.updated_at = now();
@@ -32,10 +58,11 @@ BEGIN
 END;
 $$;
 
--- Auto-compute job_costs.total_cost = quantity * unit_cost
+-- Auto-computes job_costs.total_cost = quantity * unit_cost.
 CREATE OR REPLACE FUNCTION public.sync_job_cost_total()
 RETURNS TRIGGER
 LANGUAGE plpgsql
+SET search_path = public                          -- FIX-1
 AS $$
 BEGIN
   NEW.total_cost = NEW.quantity * NEW.unit_cost;
@@ -43,50 +70,49 @@ BEGIN
 END;
 $$;
 
--- Returns TRUE when the calling user is a member of the given organization.
--- SECURITY DEFINER so it can read organization_members without triggering
--- the RLS policies on that table (avoids infinite recursion).
-CREATE OR REPLACE FUNCTION public.is_org_member(org_id UUID)
-RETURNS BOOLEAN
+-- Safely extracts the organization UUID from a storage object path.
+-- Path convention: {org_id}/{job_id}/{uuid}-{filename}
+-- Returns NULL (never throws) when the first segment is not a valid UUID.
+-- Used by all storage.objects policies (FIX-6).
+CREATE OR REPLACE FUNCTION public.storage_org_id(obj_name TEXT)
+RETURNS UUID
 LANGUAGE sql
-STABLE
-SECURITY DEFINER
-SET search_path = public
+IMMUTABLE
+SET search_path = public                          -- FIX-1
 AS $$
-  SELECT EXISTS (
-    SELECT 1
-    FROM   public.organization_members
-    WHERE  organization_id = org_id
-    AND    user_id         = auth.uid()
-  );
+  SELECT CASE
+    WHEN split_part(obj_name, '/', 1) ~
+         '^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$'
+    THEN split_part(obj_name, '/', 1)::uuid
+    ELSE NULL
+  END;
 $$;
 
--- Returns TRUE when the calling user has the given role (or higher) in an org.
--- Role hierarchy: owner > admin > member
-CREATE OR REPLACE FUNCTION public.is_org_role(org_id UUID, min_role TEXT)
-RETURNS BOOLEAN
-LANGUAGE sql
-STABLE
+-- Auto-creates a profiles row when a Supabase Auth user signs up.
+-- LANGUAGE plpgsql: body is lazy-validated — safe to define before profiles table.
+CREATE OR REPLACE FUNCTION public.handle_new_user()
+RETURNS TRIGGER
+LANGUAGE plpgsql
 SECURITY DEFINER
 SET search_path = public
 AS $$
-  SELECT EXISTS (
-    SELECT 1
-    FROM   public.organization_members
-    WHERE  organization_id = org_id
-    AND    user_id         = auth.uid()
-    AND    CASE min_role
-             WHEN 'owner' THEN role = 'owner'
-             WHEN 'admin' THEN role IN ('owner', 'admin')
-             ELSE              role IN ('owner', 'admin', 'member')
-           END
-  );
+BEGIN
+  INSERT INTO public.profiles (id, full_name, avatar_url)
+  VALUES (
+    NEW.id,
+    NEW.raw_user_meta_data->>'full_name',
+    NEW.raw_user_meta_data->>'avatar_url'
+  )
+  ON CONFLICT (id) DO NOTHING;
+  RETURN NEW;
+END;
 $$;
 
 
 -- ===========================================================================
--- ORGANIZATIONS
--- One organization per business / company account.
+-- SECTION 2: ORGANIZATIONS
+-- Created without RLS policies — policies are added in Section 6 after the
+-- helper functions that they reference have been defined (FIX-3).
 -- ===========================================================================
 
 CREATE TABLE IF NOT EXISTS public.organizations (
@@ -110,100 +136,44 @@ CREATE TRIGGER trg_organizations_updated_at
   BEFORE UPDATE ON public.organizations
   FOR EACH ROW EXECUTE FUNCTION public.set_updated_at();
 
--- RLS: members can read their org; only owners/admins can mutate it
+-- RLS is enabled here; policies are added in Section 6.
 ALTER TABLE public.organizations ENABLE ROW LEVEL SECURITY;
-
-CREATE POLICY "Org members can view their organization"
-  ON public.organizations FOR SELECT
-  TO authenticated
-  USING (public.is_org_member(id));
-
-CREATE POLICY "Org admins can update their organization"
-  ON public.organizations FOR UPDATE
-  TO authenticated
-  USING  (public.is_org_role(id, 'admin'))
-  WITH CHECK (public.is_org_role(id, 'admin'));
-
--- INSERT is allowed to any authenticated user (creates a new org during onboarding)
-CREATE POLICY "Authenticated users can create organizations"
-  ON public.organizations FOR INSERT
-  TO authenticated
-  WITH CHECK (true);
-
--- Only owners can delete (destructive — rare)
-CREATE POLICY "Org owners can delete their organization"
-  ON public.organizations FOR DELETE
-  TO authenticated
-  USING (public.is_org_role(id, 'owner'));
 
 
 -- ===========================================================================
--- PROFILES
--- One row per Supabase Auth user; extended display information.
--- Populated by a trigger on auth.users or during onboarding.
+-- SECTION 3: PROFILES
+-- One row per Supabase Auth user. Created via handle_new_user() trigger.
+-- RLS policies are added in Section 6 (after helper functions).
 -- ===========================================================================
 
 CREATE TABLE IF NOT EXISTS public.profiles (
-  id            UUID  PRIMARY KEY REFERENCES auth.users (id) ON DELETE CASCADE,
-  full_name     TEXT,
-  avatar_url    TEXT,
-  job_title     TEXT,
-  phone         TEXT,
-  created_at    TIMESTAMPTZ NOT NULL DEFAULT now(),
-  updated_at    TIMESTAMPTZ NOT NULL DEFAULT now()
+  id          UUID  PRIMARY KEY REFERENCES auth.users (id) ON DELETE CASCADE,
+  full_name   TEXT,
+  avatar_url  TEXT,
+  job_title   TEXT,
+  phone       TEXT,
+  created_at  TIMESTAMPTZ NOT NULL DEFAULT now(),
+  updated_at  TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 
 CREATE TRIGGER trg_profiles_updated_at
   BEFORE UPDATE ON public.profiles
   FOR EACH ROW EXECUTE FUNCTION public.set_updated_at();
 
--- Auto-create a profile row whenever a new user signs up
-CREATE OR REPLACE FUNCTION public.handle_new_user()
-RETURNS TRIGGER
-LANGUAGE plpgsql
-SECURITY DEFINER
-SET search_path = public
-AS $$
-BEGIN
-  INSERT INTO public.profiles (id, full_name, avatar_url)
-  VALUES (
-    NEW.id,
-    NEW.raw_user_meta_data->>'full_name',
-    NEW.raw_user_meta_data->>'avatar_url'
-  )
-  ON CONFLICT (id) DO NOTHING;
-  RETURN NEW;
-END;
-$$;
-
+-- Fire handle_new_user() whenever a new Supabase Auth user is created.
 CREATE TRIGGER trg_auth_user_created
   AFTER INSERT ON auth.users
   FOR EACH ROW EXECUTE FUNCTION public.handle_new_user();
 
--- RLS: authenticated users can see all profiles (for member directories, @mentions)
---      but may only update their own
+-- RLS is enabled here; policies are added in Section 6.
 ALTER TABLE public.profiles ENABLE ROW LEVEL SECURITY;
-
-CREATE POLICY "Authenticated users can view all profiles"
-  ON public.profiles FOR SELECT
-  TO authenticated
-  USING (true);
-
-CREATE POLICY "Users can insert their own profile"
-  ON public.profiles FOR INSERT
-  TO authenticated
-  WITH CHECK (id = auth.uid());
-
-CREATE POLICY "Users can update their own profile"
-  ON public.profiles FOR UPDATE
-  TO authenticated
-  USING  (id = auth.uid())
-  WITH CHECK (id = auth.uid());
 
 
 -- ===========================================================================
--- ORGANIZATION MEMBERS
+-- SECTION 4: ORGANIZATION MEMBERS
 -- Joins users to organizations with a role.
+-- Must exist before the LANGUAGE sql helper functions are defined (FIX-2).
+-- RLS policies are added in Section 6 (after helper functions).
 -- ===========================================================================
 
 CREATE TABLE IF NOT EXISTS public.organization_members (
@@ -221,51 +191,198 @@ CREATE TABLE IF NOT EXISTS public.organization_members (
 CREATE INDEX IF NOT EXISTS idx_org_members_org_id  ON public.organization_members (organization_id);
 CREATE INDEX IF NOT EXISTS idx_org_members_user_id ON public.organization_members (user_id);
 
--- RLS: members can see all memberships in their org;
---      admins can add/remove members; only owners can promote to admin/owner
+-- RLS is enabled here; policies are added in Section 6.
 ALTER TABLE public.organization_members ENABLE ROW LEVEL SECURITY;
 
+
+-- ===========================================================================
+-- SECTION 5: ORGANIZATION HELPER FUNCTIONS
+-- Defined HERE — after organization_members exists — because LANGUAGE sql
+-- functions validate table references at CREATE time (FIX-2).
+-- All are SECURITY DEFINER so they bypass RLS on organization_members,
+-- preventing infinite recursion when called from RLS policies (FIX-4, FIX-5).
+-- ===========================================================================
+
+-- Returns TRUE when auth.uid() is a member of the given organization.
+CREATE OR REPLACE FUNCTION public.is_org_member(org_id UUID)
+RETURNS BOOLEAN
+LANGUAGE sql
+STABLE
+SECURITY DEFINER
+SET search_path = public
+AS $$
+  SELECT EXISTS (
+    SELECT 1
+    FROM   public.organization_members
+    WHERE  organization_id = org_id
+    AND    user_id         = auth.uid()
+  );
+$$;
+
+-- Returns TRUE when auth.uid() holds at least min_role in the given org.
+-- Role hierarchy: owner > admin > member
+CREATE OR REPLACE FUNCTION public.is_org_role(org_id UUID, min_role TEXT)
+RETURNS BOOLEAN
+LANGUAGE sql
+STABLE
+SECURITY DEFINER
+SET search_path = public
+AS $$
+  SELECT EXISTS (
+    SELECT 1
+    FROM   public.organization_members
+    WHERE  organization_id = org_id
+    AND    user_id         = auth.uid()
+    AND    CASE min_role
+             WHEN 'owner' THEN role = 'owner'
+             WHEN 'admin' THEN role IN ('owner', 'admin')
+             ELSE              role IN ('owner', 'admin', 'member')
+           END
+  );
+$$;
+
+-- Returns the set of organization_ids that auth.uid() belongs to.
+-- Used by the organization_members SELECT policy (FIX-4).
+-- SECURITY DEFINER reads organization_members without triggering its own RLS,
+-- breaking the otherwise-infinite recursion.
+CREATE OR REPLACE FUNCTION public.get_my_org_ids()
+RETURNS SETOF UUID
+LANGUAGE sql
+STABLE
+SECURITY DEFINER
+SET search_path = public
+AS $$
+  SELECT organization_id
+  FROM   public.organization_members
+  WHERE  user_id = auth.uid();
+$$;
+
+-- Returns TRUE when no member rows exist yet for the given organization.
+-- Used by the organization_members INSERT policy (FIX-5).
+-- SECURITY DEFINER reads organization_members without triggering its own RLS.
+CREATE OR REPLACE FUNCTION public.org_has_no_members(org_id UUID)
+RETURNS BOOLEAN
+LANGUAGE sql
+STABLE
+SECURITY DEFINER
+SET search_path = public
+AS $$
+  SELECT NOT EXISTS (
+    SELECT 1
+    FROM   public.organization_members
+    WHERE  organization_id = org_id
+  );
+$$;
+
+
+-- ===========================================================================
+-- SECTION 6: RLS POLICIES
+-- All helper functions now exist — safe to create policies (FIX-3).
+-- ===========================================================================
+
+-- ---------------------------------------------------------------------------
+-- organizations
+-- ---------------------------------------------------------------------------
+
+-- Members can read their own organization.
+CREATE POLICY "Org members can view their organization"
+  ON public.organizations FOR SELECT
+  TO authenticated
+  USING (public.is_org_member(id));
+
+-- Any authenticated user can create a new organization (onboarding flow).
+CREATE POLICY "Authenticated users can create organizations"
+  ON public.organizations FOR INSERT
+  TO authenticated
+  WITH CHECK (true);
+
+-- Admins and owners can update org settings.
+CREATE POLICY "Org admins can update their organization"
+  ON public.organizations FOR UPDATE
+  TO authenticated
+  USING  (public.is_org_role(id, 'admin'))
+  WITH CHECK (public.is_org_role(id, 'admin'));
+
+-- Only owners can delete (destructive — rare).
+CREATE POLICY "Org owners can delete their organization"
+  ON public.organizations FOR DELETE
+  TO authenticated
+  USING (public.is_org_role(id, 'owner'));
+
+-- ---------------------------------------------------------------------------
+-- profiles
+-- ---------------------------------------------------------------------------
+
+-- All authenticated users can see profiles (member directories, @mentions).
+CREATE POLICY "Authenticated users can view all profiles"
+  ON public.profiles FOR SELECT
+  TO authenticated
+  USING (true);
+
+-- Users can create their own profile (also handled by trigger; policy covers manual upserts).
+CREATE POLICY "Users can insert their own profile"
+  ON public.profiles FOR INSERT
+  TO authenticated
+  WITH CHECK (id = auth.uid());
+
+-- Users can only update their own profile.
+CREATE POLICY "Users can update their own profile"
+  ON public.profiles FOR UPDATE
+  TO authenticated
+  USING  (id = auth.uid())
+  WITH CHECK (id = auth.uid());
+
+-- No DELETE policy: application code never deletes profiles directly.
+-- Deletion is handled by ON DELETE CASCADE from auth.users.
+
+-- ---------------------------------------------------------------------------
+-- organization_members
+-- ---------------------------------------------------------------------------
+
+-- Members can see all membership rows for organizations they belong to.
+-- Uses get_my_org_ids() (SECURITY DEFINER) to avoid reading organization_members
+-- inside its own RLS policy, which would cause infinite recursion (FIX-4).
 CREATE POLICY "Org members can view all members of their org"
   ON public.organization_members FOR SELECT
   TO authenticated
-  USING (
-    organization_id IN (
-      SELECT organization_id
-      FROM   public.organization_members
-      WHERE  user_id = auth.uid()
-    )
-  );
+  USING (organization_id IN (SELECT public.get_my_org_ids()));
 
--- Any authenticated user can insert themselves as owner when creating a new org
--- (enforced in application: must be first member = owner)
+-- Admins can add new members; a user can add themselves as owner when the org
+-- is brand new (no existing members). org_has_no_members() is SECURITY DEFINER
+-- to avoid reading organization_members inside its own INSERT policy (FIX-5).
 CREATE POLICY "Org admins can insert members"
   ON public.organization_members FOR INSERT
   TO authenticated
   WITH CHECK (
     public.is_org_role(organization_id, 'admin')
-    OR NOT EXISTS (
-      SELECT 1 FROM public.organization_members WHERE organization_id = organization_members.organization_id
-    )
+    OR public.org_has_no_members(organization_id)
   );
 
+-- Admins can change member roles.
 CREATE POLICY "Org admins can update member roles"
   ON public.organization_members FOR UPDATE
   TO authenticated
   USING  (public.is_org_role(organization_id, 'admin'))
   WITH CHECK (public.is_org_role(organization_id, 'admin'));
 
+-- Admins can remove members; any member can remove themselves.
 CREATE POLICY "Org admins can remove members"
   ON public.organization_members FOR DELETE
   TO authenticated
   USING (
     public.is_org_role(organization_id, 'admin')
-    OR user_id = auth.uid()   -- members can remove themselves
+    OR user_id = auth.uid()
   );
 
 
 -- ===========================================================================
--- CUSTOMERS
+-- SECTION 7: BUSINESS TABLES
+-- Each table: CREATE TABLE → trigger(s) → indexes → RLS enable → RLS policies
 -- ===========================================================================
+
+-- ---------------------------------------------------------------------------
+-- CUSTOMERS
+-- ---------------------------------------------------------------------------
 
 CREATE TABLE IF NOT EXISTS public.customers (
   id               UUID  PRIMARY KEY DEFAULT gen_random_uuid(),
@@ -317,9 +434,9 @@ CREATE POLICY "Org admins can delete customers"
   USING (public.is_org_role(organization_id, 'admin'));
 
 
--- ===========================================================================
+-- ---------------------------------------------------------------------------
 -- LEADS
--- ===========================================================================
+-- ---------------------------------------------------------------------------
 
 CREATE TABLE IF NOT EXISTS public.leads (
   id               UUID  PRIMARY KEY DEFAULT gen_random_uuid(),
@@ -376,9 +493,9 @@ CREATE POLICY "Org admins can delete leads"
   USING (public.is_org_role(organization_id, 'admin'));
 
 
--- ===========================================================================
+-- ---------------------------------------------------------------------------
 -- JOBS
--- ===========================================================================
+-- ---------------------------------------------------------------------------
 
 CREATE TABLE IF NOT EXISTS public.jobs (
   id               UUID  PRIMARY KEY DEFAULT gen_random_uuid(),
@@ -411,11 +528,11 @@ CREATE TRIGGER trg_jobs_updated_at
   BEFORE UPDATE ON public.jobs
   FOR EACH ROW EXECUTE FUNCTION public.set_updated_at();
 
-CREATE INDEX IF NOT EXISTS idx_jobs_org_id          ON public.jobs (organization_id);
-CREATE INDEX IF NOT EXISTS idx_jobs_customer_id     ON public.jobs (customer_id);
-CREATE INDEX IF NOT EXISTS idx_jobs_lead_id         ON public.jobs (lead_id);
-CREATE INDEX IF NOT EXISTS idx_jobs_status          ON public.jobs (status);
-CREATE INDEX IF NOT EXISTS idx_jobs_scheduled_start ON public.jobs (scheduled_start);
+CREATE INDEX IF NOT EXISTS idx_jobs_org_id           ON public.jobs (organization_id);
+CREATE INDEX IF NOT EXISTS idx_jobs_customer_id      ON public.jobs (customer_id);
+CREATE INDEX IF NOT EXISTS idx_jobs_lead_id          ON public.jobs (lead_id);
+CREATE INDEX IF NOT EXISTS idx_jobs_status           ON public.jobs (status);
+CREATE INDEX IF NOT EXISTS idx_jobs_scheduled_start  ON public.jobs (scheduled_start);
 
 ALTER TABLE public.jobs ENABLE ROW LEVEL SECURITY;
 
@@ -437,9 +554,9 @@ CREATE POLICY "Org admins can delete jobs"
   USING (public.is_org_role(organization_id, 'admin'));
 
 
--- ===========================================================================
+-- ---------------------------------------------------------------------------
 -- ESTIMATES
--- ===========================================================================
+-- ---------------------------------------------------------------------------
 
 CREATE TABLE IF NOT EXISTS public.estimates (
   id               UUID  PRIMARY KEY DEFAULT gen_random_uuid(),
@@ -500,10 +617,10 @@ CREATE POLICY "Org admins can delete estimates"
   USING (public.is_org_role(organization_id, 'admin'));
 
 
--- ===========================================================================
+-- ---------------------------------------------------------------------------
 -- PAYMENTS  (formerly: receipts)
 -- Invoices / payment records issued after a job is complete.
--- ===========================================================================
+-- ---------------------------------------------------------------------------
 
 CREATE TABLE IF NOT EXISTS public.payments (
   id               UUID  PRIMARY KEY DEFAULT gen_random_uuid(),
@@ -567,10 +684,13 @@ CREATE POLICY "Org admins can delete payments"
   USING (public.is_org_role(organization_id, 'admin'));
 
 
--- ===========================================================================
+-- ---------------------------------------------------------------------------
 -- JOB COSTS
--- Internal cost line items (labour, materials, etc.) — not shown to customers.
--- ===========================================================================
+-- Internal cost line items — not shown to customers.
+-- Two BEFORE triggers fire in alphabetical order:
+--   trg_job_costs_sync_total  → computes total_cost first
+--   trg_job_costs_updated_at  → stamps updated_at second  ✓
+-- ---------------------------------------------------------------------------
 
 CREATE TABLE IF NOT EXISTS public.job_costs (
   id               UUID  PRIMARY KEY DEFAULT gen_random_uuid(),
@@ -584,7 +704,7 @@ CREATE TABLE IF NOT EXISTS public.job_costs (
   quantity         NUMERIC(10,3) NOT NULL DEFAULT 1,
   unit_cost        NUMERIC(12,2) NOT NULL DEFAULT 0,
   total_cost       NUMERIC(12,2) NOT NULL DEFAULT 0,
-  -- total_cost is auto-computed by trigger; do not set it manually
+  -- total_cost is auto-computed by trg_job_costs_sync_total; do not set manually
 
   notes            TEXT,
 
@@ -592,10 +712,12 @@ CREATE TABLE IF NOT EXISTS public.job_costs (
   updated_at  TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 
+-- Fires first (alphabetically before trg_job_costs_updated_at)
 CREATE TRIGGER trg_job_costs_sync_total
   BEFORE INSERT OR UPDATE ON public.job_costs
   FOR EACH ROW EXECUTE FUNCTION public.sync_job_cost_total();
 
+-- Fires second
 CREATE TRIGGER trg_job_costs_updated_at
   BEFORE UPDATE ON public.job_costs
   FOR EACH ROW EXECUTE FUNCTION public.set_updated_at();
@@ -624,12 +746,12 @@ CREATE POLICY "Org admins can delete job_costs"
   USING (public.is_org_role(organization_id, 'admin'));
 
 
--- ===========================================================================
+-- ---------------------------------------------------------------------------
 -- JOB DOCUMENTS
--- Files attached to a job — vendor receipts, invoices, permits, warranties,
--- signed estimates, before/after photos, and any other supporting documents.
--- Files are stored in Supabase Storage; this table records the metadata.
--- ===========================================================================
+-- Metadata for files stored in Supabase Storage (bucket: job-documents).
+-- Covers vendor receipts, equipment invoices, permits, warranties,
+-- signed estimates, and before/after photos.
+-- ---------------------------------------------------------------------------
 
 CREATE TABLE IF NOT EXISTS public.job_documents (
   id               UUID  PRIMARY KEY DEFAULT gen_random_uuid(),
@@ -649,16 +771,16 @@ CREATE TABLE IF NOT EXISTS public.job_documents (
                        'other'
                      )),
 
-  -- Storage
-  file_name        TEXT  NOT NULL,    -- original filename as uploaded, e.g. "invoice-hvac-unit.pdf"
-  storage_path     TEXT  NOT NULL,    -- path inside the job-documents bucket
-                                      -- convention: {org_id}/{job_id}/{uuid}-{file_name}
+  -- Storage reference
+  file_name        TEXT  NOT NULL,   -- original filename, e.g. "invoice-hvac-unit.pdf"
+  storage_path     TEXT  NOT NULL,   -- path inside job-documents bucket
+                                     -- convention: {org_id}/{job_id}/{uuid}-{file_name}
 
-  -- Financial metadata (optional — mainly for vendor_receipt / equipment_invoice)
-  amount           NUMERIC(12,2),     -- dollar value of the document, if applicable
-  vendor           TEXT,              -- supplier or contractor name
+  -- Financial metadata (optional — primarily for vendor_receipt / equipment_invoice)
+  amount           NUMERIC(12,2),    -- dollar value, if applicable
+  vendor           TEXT,             -- supplier or contractor name
 
-  document_date    DATE,              -- date on the document (invoice date, permit date, etc.)
+  document_date    DATE,             -- date on the document (invoice date, permit date, etc.)
 
   notes            TEXT,
 
@@ -699,14 +821,15 @@ CREATE POLICY "Org admins can delete job_documents"
 
 
 -- ===========================================================================
--- STORAGE — Private bucket: job-documents
+-- SECTION 8: STORAGE — Private bucket: job-documents
 --
 -- Path convention inside the bucket:
 --   {organization_id}/{job_id}/{uuid}-{original_filename}
 --
--- The first path segment is always the organization_id UUID.
--- Policies extract it with (string_to_array(name, '/'))[1]::uuid and verify
--- the calling user is a member of that organization.
+-- storage_org_id(name) extracts the first path segment and validates it as a
+-- UUID before casting. It returns NULL for any malformed path, which causes
+-- is_org_member(NULL) / is_org_role(NULL, ...) to return false safely —
+-- no errors thrown, no storage access granted (FIX-6).
 -- ===========================================================================
 
 INSERT INTO storage.buckets (id, name, public, file_size_limit, allowed_mime_types)
@@ -731,55 +854,44 @@ VALUES (
 )
 ON CONFLICT (id) DO NOTHING;
 
--- SELECT — org members can download files that belong to their organization
+-- SELECT — org members can download files belonging to their organization.
 CREATE POLICY "Org members can read job documents"
   ON storage.objects FOR SELECT
   TO authenticated
   USING (
     bucket_id = 'job-documents'
-    AND public.is_org_member(
-      (string_to_array(name, '/'))[1]::uuid
-    )
+    AND public.is_org_member(public.storage_org_id(name))   -- FIX-6
   );
 
--- INSERT — org members can upload files into their organization's folder
+-- INSERT — org members can upload into their organization's folder.
 CREATE POLICY "Org members can upload job documents"
   ON storage.objects FOR INSERT
   TO authenticated
   WITH CHECK (
     bucket_id = 'job-documents'
-    AND public.is_org_member(
-      (string_to_array(name, '/'))[1]::uuid
-    )
+    AND public.is_org_member(public.storage_org_id(name))   -- FIX-6
   );
 
--- UPDATE — org members can update (replace) files they can already see
+-- UPDATE — org members can replace files they can already read.
 CREATE POLICY "Org members can update job documents"
   ON storage.objects FOR UPDATE
   TO authenticated
   USING (
     bucket_id = 'job-documents'
-    AND public.is_org_member(
-      (string_to_array(name, '/'))[1]::uuid
-    )
+    AND public.is_org_member(public.storage_org_id(name))   -- FIX-6
   )
   WITH CHECK (
     bucket_id = 'job-documents'
-    AND public.is_org_member(
-      (string_to_array(name, '/'))[1]::uuid
-    )
+    AND public.is_org_member(public.storage_org_id(name))   -- FIX-6
   );
 
--- DELETE — only org admins/owners can permanently remove files
+-- DELETE — only org admins/owners can permanently remove files.
 CREATE POLICY "Org admins can delete job documents"
   ON storage.objects FOR DELETE
   TO authenticated
   USING (
     bucket_id = 'job-documents'
-    AND public.is_org_role(
-      (string_to_array(name, '/'))[1]::uuid,
-      'admin'
-    )
+    AND public.is_org_role(public.storage_org_id(name), 'admin')   -- FIX-6
   );
 
 
