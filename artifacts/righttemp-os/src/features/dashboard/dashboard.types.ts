@@ -12,6 +12,10 @@ export interface DashboardStats {
   activeCustomers: number;
   scheduledJobs: number;
   jobsToday: number;
+  monthlyRevenue: number;
+  monthlyCost: number;
+  monthlyProfit: number;
+  monthlyMarginPercent: number | null;
   leadsByStatus: Record<LeadStatus, number>;
   recentLeads: DashboardLead[];
 }

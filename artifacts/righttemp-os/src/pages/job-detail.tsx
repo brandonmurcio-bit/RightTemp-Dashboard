@@ -5,6 +5,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { useJob } from "@/features/jobs/jobs.hooks";
 import { JobWalkthroughCard } from "@/components/job-walkthrough-card";
 import { EditJobDialog } from "@/components/edit-job-dialog";
+import { JobProfitabilityCard } from "@/components/job-profitability-card";
 
 const dateFormatter = new Intl.DateTimeFormat(undefined, {
   dateStyle: "full",
@@ -97,6 +98,7 @@ export default function JobDetailPage() {
       )}
 
       <JobWalkthroughCard jobId={job.id} />
+      <JobProfitabilityCard jobId={job.id} />
     </div>
   );
 }
