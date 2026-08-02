@@ -1,20 +1,21 @@
 import { getCurrentOrganizationId } from "@/lib/get-current-organization-id";
 import { supabase } from "@/lib/supabase";
-import {
-  mapLeadInputToInsert,
-  mapLeadRowToLead,
-} from "./leads.mappers";
+import { mapLeadInputToInsert, mapLeadRowToLead } from "./leads.mappers";
 import type { Lead, LeadInput, LeadRow } from "./leads.types";
 
 const leadSelect = `
   id,
   organization_id,
+  customer_id,
   name,
   email,
   phone,
   status,
   source,
   service_type,
+  estimate_price,
+  equipment,
+  scope_of_work,
   created_at
 `;
 
@@ -92,18 +93,12 @@ export async function createLead(input: LeadInput): Promise<Lead> {
   }
 }
 
-export async function updateLead(
-  id: string,
-  input: LeadInput,
-): Promise<Lead> {
+export async function updateLead(id: string, input: LeadInput): Promise<Lead> {
   try {
     const organizationId = await getCurrentOrganizationId();
     const mappedInput = mapLeadInputToInsert(input, organizationId);
 
-    const {
-      organization_id: _organizationId,
-      ...updateData
-    } = mappedInput;
+    const { organization_id: _organizationId, ...updateData } = mappedInput;
 
     const { data, error } = await supabase
       .from("leads")
@@ -138,5 +133,25 @@ export async function deleteLead(id: string): Promise<void> {
     }
   } catch (error) {
     throw normalizeError(error, "Unable to delete lead");
+  }
+}
+
+export async function convertLeadToCustomer(id: string): Promise<string> {
+  try {
+    const { data, error } = await supabase.rpc("convert_lead_to_customer", {
+      p_lead_id: id,
+    });
+
+    if (error) {
+      throw new Error(`Unable to convert lead: ${error.message}`);
+    }
+
+    if (typeof data !== "string") {
+      throw new Error("Conversion did not return a customer ID");
+    }
+
+    return data;
+  } catch (error) {
+    throw normalizeError(error, "Unable to convert lead");
   }
 }

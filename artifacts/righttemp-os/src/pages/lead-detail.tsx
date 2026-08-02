@@ -10,32 +10,31 @@ import {
   ChevronLeft,
   Save,
   Trash2,
+  UserRoundCheck,
 } from "lucide-react";
 
 import {
   dashboardQueryKeys,
   leadQueryKeys,
+  useConvertLeadToCustomer,
   useDeleteLead,
   useLead,
   useUpdateLead,
 } from "@/features/leads/leads.hooks";
-import type {
-  Lead,
-  LeadInput,
-  LeadStatus,
-} from "@/features/leads/leads.types";
+import { customerQueryKeys } from "@/features/customers/customers.hooks";
+import type { Lead, LeadInput, LeadStatus } from "@/features/leads/leads.types";
 import { useToast } from "@/hooks/use-toast";
 
 import { Button } from "@/components/ui/button";
-  import {
-    Card,
-    CardContent,
-    CardDescription,
-    CardHeader,
-    CardTitle,
-  } from "@/components/ui/card";
+import {
+  Card,
+  CardContent,
+  CardDescription,
+  CardHeader,
+  CardTitle,
+} from "@/components/ui/card";
 
-  import { Textarea } from "@/components/ui/textarea";
+import { Textarea } from "@/components/ui/textarea";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import {
@@ -68,23 +67,16 @@ const leadUpdateSchema = z.object({
 
   phone: z.string().trim().min(1, "Phone is required"),
 
-  status: z.enum([
-    "new",
-    "contacted",
-    "qualified",
-    "proposal",
-    "won",
-    "lost",
-  ]),
+  status: z.enum(["new", "contacted", "qualified", "proposal", "won", "lost"]),
 
-source: z.enum([
-  "website",
-  "referral",
-  "phone",
-  "walk_in",
-  "social_media",
-  "other",
-]),
+  source: z.enum([
+    "website",
+    "referral",
+    "phone",
+    "walk_in",
+    "social_media",
+    "other",
+  ]),
 
   serviceType: z.string().trim().optional(),
 
@@ -126,16 +118,12 @@ export default function LeadDetailPage() {
   const [, setLocation] = useLocation();
   const queryClient = useQueryClient();
   const { toast } = useToast();
-  
 
-  const {
-    data: lead,
-    isLoading,
-    isError,
-  } = useLead(id);
+  const { data: lead, isLoading, isError } = useLead(id);
 
   const updateLead = useUpdateLead();
   const deleteLead = useDeleteLead();
+  const convertLead = useConvertLeadToCustomer();
 
   const form = useForm<LeadUpdateValues>({
     resolver: zodResolver(leadUpdateSchema),
@@ -163,17 +151,12 @@ export default function LeadDetailPage() {
   }, [form, id, lead]);
 
   const updateCachedLead = (updatedLead: Lead) => {
-    queryClient.setQueryData(
-      leadQueryKeys.detail(updatedLead.id),
-      updatedLead,
-    );
+    queryClient.setQueryData(leadQueryKeys.detail(updatedLead.id), updatedLead);
 
-    queryClient.setQueryData<Lead[]>(
-      leadQueryKeys.list(),
-      (currentLeads) =>
-        currentLeads?.map((currentLead) =>
-          currentLead.id === updatedLead.id ? updatedLead : currentLead,
-        ),
+    queryClient.setQueryData<Lead[]>(leadQueryKeys.list(), (currentLeads) =>
+      currentLeads?.map((currentLead) =>
+        currentLead.id === updatedLead.id ? updatedLead : currentLead,
+      ),
     );
   };
 
@@ -261,12 +244,48 @@ export default function LeadDetailPage() {
     void form.handleSubmit(onSubmit)();
   };
 
+  const handleConvertToCustomer = (currentLead: Lead) => {
+    if (currentLead.customerId) {
+      setLocation(`/customers/${currentLead.customerId}`);
+      return;
+    }
+
+    convertLead.mutate(currentLead.id, {
+      onSuccess: (customerId) => {
+        const convertedLead: Lead = {
+          ...currentLead,
+          customerId,
+          status: "won",
+        };
+
+        updateCachedLead(convertedLead);
+        queryClient.invalidateQueries({
+          queryKey: customerQueryKeys.list(),
+        });
+        queryClient.invalidateQueries({
+          queryKey: dashboardQueryKeys.stats,
+        });
+
+        toast({
+          title: "Customer created",
+          description: `${currentLead.name} is now linked to a customer record.`,
+        });
+
+        setLocation(`/customers/${customerId}`);
+      },
+      onError: (error) => {
+        toast({
+          title: "Unable to create customer",
+          description:
+            error instanceof Error ? error.message : "Lead conversion failed.",
+          variant: "destructive",
+        });
+      },
+    });
+  };
+
   if (!id) {
-    return (
-      <div className="p-8 text-destructive">
-        Invalid lead ID.
-      </div>
-    );
+    return <div className="p-8 text-destructive">Invalid lead ID.</div>;
   }
 
   if (isLoading) {
@@ -279,26 +298,19 @@ export default function LeadDetailPage() {
 
   if (isError) {
     return (
-      <div className="p-8 text-destructive">
-        Unable to load this lead.
-      </div>
+      <div className="p-8 text-destructive">Unable to load this lead.</div>
     );
   }
 
   if (!lead) {
-    return (
-      <div className="p-8 text-destructive">
-        Lead not found.
-      </div>
-    );
+    return <div className="p-8 text-destructive">Lead not found.</div>;
   }
 
   const displayedStatus = form.watch("status");
   const currentStageIndex = pipelineStages.indexOf(displayedStatus);
 
   const nextStage =
-    currentStageIndex >= 0 &&
-    currentStageIndex < pipelineStages.length - 1
+    currentStageIndex >= 0 && currentStageIndex < pipelineStages.length - 1
       ? pipelineStages[currentStageIndex + 1]
       : null;
 
@@ -316,12 +328,8 @@ export default function LeadDetailPage() {
           </Button>
 
           <div>
-            <h1 className="text-2xl font-bold tracking-tight">
-              {lead.name}
-            </h1>
-            <p className="text-sm text-muted-foreground">
-              Lead #{lead.id}
-            </p>
+            <h1 className="text-2xl font-bold tracking-tight">{lead.name}</h1>
+            <p className="text-sm text-muted-foreground">Lead #{lead.id}</p>
           </div>
         </div>
 
@@ -342,13 +350,11 @@ export default function LeadDetailPage() {
 
             <AlertDialogContent>
               <AlertDialogHeader>
-                <AlertDialogTitle>
-                  Are you sure?
-                </AlertDialogTitle>
+                <AlertDialogTitle>Are you sure?</AlertDialogTitle>
 
                 <AlertDialogDescription>
-                  This action cannot be undone. This will permanently
-                  delete the lead.
+                  This action cannot be undone. This will permanently delete the
+                  lead.
                 </AlertDialogDescription>
               </AlertDialogHeader>
 
@@ -386,17 +392,14 @@ export default function LeadDetailPage() {
         <CardContent className="p-4 md:p-6">
           <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
             <div className="flex-1">
-              <h3 className="text-sm font-medium mb-3">
-                Pipeline Status
-              </h3>
+              <h3 className="text-sm font-medium mb-3">Pipeline Status</h3>
 
               <div className="flex items-center gap-2">
                 {pipelineStages.map((stage, index) => (
                   <div
                     key={stage}
                     className={`flex-1 h-2 rounded-full transition-colors ${
-                      currentStageIndex >= 0 &&
-                      index <= currentStageIndex
+                      currentStageIndex >= 0 && index <= currentStageIndex
                         ? "bg-primary"
                         : "bg-primary/20"
                     }`}
@@ -433,23 +436,22 @@ export default function LeadDetailPage() {
                 </Button>
               )}
 
-              {displayedStatus !== "won" &&
-                displayedStatus !== "lost" && (
-                  <Button
-                    size="sm"
-                    variant="outline"
-                    disabled={updateLead.isPending}
-                    onClick={() => advanceStatus("lost")}
-                    className="text-destructive hover:text-destructive hover:bg-destructive/10 border-destructive/20"
-                  >
-                    Mark as Lost
-                  </Button>
-                )}
+              {displayedStatus !== "won" && displayedStatus !== "lost" && (
+                <Button
+                  size="sm"
+                  variant="outline"
+                  disabled={updateLead.isPending}
+                  onClick={() => advanceStatus("lost")}
+                  className="text-destructive hover:text-destructive hover:bg-destructive/10 border-destructive/20"
+                >
+                  Mark as Lost
+                </Button>
+              )}
             </div>
           </div>
         </CardContent>
       </Card>
-  
+
       {form.watch("status") === "proposal" && (
         <Card>
           <CardHeader>
@@ -493,18 +495,40 @@ export default function LeadDetailPage() {
           <CardHeader>
             <CardTitle>🎉 Sale Won</CardTitle>
             <CardDescription>
-              This lead is ready to become a scheduled installation.
+              Convert this sale into a customer record before creating jobs.
             </CardDescription>
           </CardHeader>
 
           <CardContent>
-            <Button
-              className="w-full"
-              size="lg"
-              onClick={() => setLocation(`/jobs/new?leadId=${lead.id}`)}
-            >
-              📅 Schedule Installation
-            </Button>
+            <div className="flex flex-col gap-3 sm:flex-row">
+              {lead.customerId && (
+                <Button
+                  className="flex-1"
+                  size="lg"
+                  variant="outline"
+                  onClick={() => setLocation(`/customers/${lead.customerId}`)}
+                >
+                  <UserRoundCheck className="mr-2 h-5 w-5" />
+                  View Customer
+                </Button>
+              )}
+
+              <Button
+                className="flex-1"
+                size="lg"
+                disabled={convertLead.isPending || form.formState.isDirty}
+                onClick={() => handleConvertToCustomer(lead)}
+              >
+                <UserRoundCheck className="mr-2 h-5 w-5" />
+                {convertLead.isPending
+                  ? "Creating Customer..."
+                  : lead.customerId
+                    ? "View Customer"
+                    : form.formState.isDirty
+                      ? "Save Changes First"
+                      : "Create Customer Record"}
+              </Button>
+            </div>
           </CardContent>
         </Card>
       )}
@@ -512,9 +536,7 @@ export default function LeadDetailPage() {
         <div className="md:col-span-2">
           <Card>
             <CardHeader>
-              <CardTitle className="text-lg">
-                Contact Information
-              </CardTitle>
+              <CardTitle className="text-lg">Contact Information</CardTitle>
             </CardHeader>
 
             <CardContent>
@@ -526,10 +548,7 @@ export default function LeadDetailPage() {
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                   <div className="space-y-2">
                     <Label htmlFor="name">Full Name</Label>
-                    <Input
-                      id="name"
-                      {...form.register("name")}
-                    />
+                    <Input id="name" {...form.register("name")} />
 
                     {form.formState.errors.name && (
                       <span className="text-xs text-destructive">
@@ -539,23 +558,15 @@ export default function LeadDetailPage() {
                   </div>
 
                   <div className="space-y-2">
-                    <Label htmlFor="serviceType">
-                      Service Requested
-                    </Label>
-                    <Input
-                      id="serviceType"
-                      {...form.register("serviceType")}
-                    />
+                    <Label htmlFor="serviceType">Service Requested</Label>
+                    <Input id="serviceType" {...form.register("serviceType")} />
                   </div>
                 </div>
 
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                   <div className="space-y-2">
                     <Label htmlFor="phone">Phone</Label>
-                    <Input
-                      id="phone"
-                      {...form.register("phone")}
-                    />
+                    <Input id="phone" {...form.register("phone")} />
 
                     {form.formState.errors.phone && (
                       <span className="text-xs text-destructive">
@@ -565,9 +576,7 @@ export default function LeadDetailPage() {
                   </div>
 
                   <div className="space-y-2">
-                    <Label htmlFor="email">
-                      Email Address
-                    </Label>
+                    <Label htmlFor="email">Email Address</Label>
                     <Input
                       id="email"
                       type="email"
@@ -589,9 +598,7 @@ export default function LeadDetailPage() {
         <div className="space-y-6">
           <Card>
             <CardHeader>
-              <CardTitle className="text-lg">
-                Attributes
-              </CardTitle>
+              <CardTitle className="text-lg">Attributes</CardTitle>
             </CardHeader>
 
             <CardContent className="space-y-4">
@@ -617,15 +624,9 @@ export default function LeadDetailPage() {
 
                   <SelectContent>
                     <SelectItem value="new">New</SelectItem>
-                    <SelectItem value="contacted">
-                      Contacted
-                    </SelectItem>
-                    <SelectItem value="qualified">
-                      Qualified
-                    </SelectItem>
-                    <SelectItem value="proposal">
-                      Proposal
-                    </SelectItem>
+                    <SelectItem value="contacted">Contacted</SelectItem>
+                    <SelectItem value="qualified">Qualified</SelectItem>
+                    <SelectItem value="proposal">Proposal</SelectItem>
                     <SelectItem value="won">Won</SelectItem>
                     <SelectItem value="lost">Lost</SelectItem>
                   </SelectContent>
@@ -653,24 +654,12 @@ export default function LeadDetailPage() {
                   </SelectTrigger>
 
                   <SelectContent>
-                    <SelectItem value="website">
-                      Website
-                    </SelectItem>
-                    <SelectItem value="referral">
-                      Referral
-                    </SelectItem>
-                    <SelectItem value="phone">
-                      Phone
-                    </SelectItem>
-                    <SelectItem value="walk_in">
-                      Walk-in
-                    </SelectItem>
-                    <SelectItem value="social_media">
-                      Social Media
-                    </SelectItem>
-                    <SelectItem value="other">
-                      Other
-                    </SelectItem>
+                    <SelectItem value="website">Website</SelectItem>
+                    <SelectItem value="referral">Referral</SelectItem>
+                    <SelectItem value="phone">Phone</SelectItem>
+                    <SelectItem value="walk_in">Walk-in</SelectItem>
+                    <SelectItem value="social_media">Social Media</SelectItem>
+                    <SelectItem value="other">Other</SelectItem>
                   </SelectContent>
                 </Select>
               </div>
@@ -679,9 +668,7 @@ export default function LeadDetailPage() {
 
           <Card>
             <CardHeader>
-              <CardTitle className="text-lg">
-                Metadata
-              </CardTitle>
+              <CardTitle className="text-lg">Metadata</CardTitle>
             </CardHeader>
 
             <CardContent className="space-y-4 text-sm">

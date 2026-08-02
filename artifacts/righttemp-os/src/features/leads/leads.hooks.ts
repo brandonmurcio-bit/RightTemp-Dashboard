@@ -1,5 +1,6 @@
 import { useMutation, useQuery } from "@tanstack/react-query";
 import {
+  convertLeadToCustomer,
   createLead,
   deleteLead,
   getLead,
@@ -41,18 +42,19 @@ export function useCreateLead() {
 
 export function useUpdateLead() {
   return useMutation({
-    mutationFn: ({
-      id,
-      data,
-    }: {
-      id: string;
-      data: LeadInput;
-    }) => updateLead(id, data),
+    mutationFn: ({ id, data }: { id: string; data: LeadInput }) =>
+      updateLead(id, data),
   });
 }
 
 export function useDeleteLead() {
   return useMutation({
     mutationFn: (id: string) => deleteLead(id),
+  });
+}
+
+export function useConvertLeadToCustomer() {
+  return useMutation({
+    mutationFn: (id: string) => convertLeadToCustomer(id),
   });
 }

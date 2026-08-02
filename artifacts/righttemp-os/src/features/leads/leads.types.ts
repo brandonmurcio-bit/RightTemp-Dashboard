@@ -1,21 +1,12 @@
 export type LeadStatus =
-  | "new"
-  | "contacted"
-  | "qualified"
-  | "proposal"
-  | "won"
-  | "lost";
+  "new" | "contacted" | "qualified" | "proposal" | "won" | "lost";
 
 export type LeadSource =
-  | "website"
-  | "referral"
-  | "phone"
-  | "walk_in"
-  | "social_media"
-  | "other";
+  "website" | "referral" | "phone" | "walk_in" | "social_media" | "other";
 
 export interface Lead {
   id: string;
+  customerId: string | null;
   name: string;
   email: string | null;
   phone: string;
@@ -45,6 +36,7 @@ export interface LeadInput {
 export interface LeadRow {
   id: string;
   organization_id: string;
+  customer_id: string | null;
   name: string;
   email: string | null;
   phone: string | null;
@@ -72,13 +64,7 @@ export interface LeadInsert {
   phone: string | null;
   status: LeadStatus;
   source:
-    | "referral"
-    | "website"
-    | "google"
-    | "yelp"
-    | "phone"
-    | "social"
-    | "other";
+    "referral" | "website" | "google" | "yelp" | "phone" | "social" | "other";
   service_type: string | null;
   estimate_price: number | null;
   equipment: string | null;

@@ -1,13 +1,9 @@
-import type {
-  Lead,
-  LeadInput,
-  LeadInsert,
-  LeadRow,
-} from "./leads.types";
+import type { Lead, LeadInput, LeadInsert, LeadRow } from "./leads.types";
 
 export function mapLeadRowToLead(row: LeadRow): Lead {
   return {
     id: row.id,
+    customerId: row.customer_id,
     name: row.name,
     email: row.email,
     phone: row.phone ?? "",
@@ -16,8 +12,8 @@ export function mapLeadRowToLead(row: LeadRow): Lead {
       row.source === "social"
         ? "social_media"
         : row.source === "google" || row.source === "yelp"
-        ? "website"
-        : (row.source ?? "other"),
+          ? "website"
+          : (row.source ?? "other"),
     serviceType: row.service_type,
     createdAt: row.created_at,
 
@@ -29,7 +25,7 @@ export function mapLeadRowToLead(row: LeadRow): Lead {
 
 export function mapLeadInputToInsert(
   input: LeadInput,
-  organizationId: string
+  organizationId: string,
 ): LeadInsert {
   return {
     organization_id: organizationId,
@@ -41,8 +37,8 @@ export function mapLeadInputToInsert(
       input.source === "walk_in"
         ? "other"
         : input.source === "social_media"
-        ? "social"
-        : input.source,
+          ? "social"
+          : input.source,
     service_type: input.serviceType ?? null,
 
     estimate_price: input.estimatePrice ?? null,
