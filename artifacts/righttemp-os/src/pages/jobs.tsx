@@ -23,6 +23,7 @@ export default function JobsPage() {
           </p>
         </div>
         <div className="flex gap-2">
+          <Button variant="outline" asChild><Link href="/schedule"><CalendarDays className="mr-2 h-4 w-4" />Calendar</Link></Button>
           <Button variant="outline" asChild><Link href="/purchase-orders"><ClipboardList className="mr-2 h-4 w-4" />PO Tracker</Link></Button>
           <Button asChild><Link href="/jobs/new"><Plus className="mr-2 h-4 w-4" />New Job</Link></Button>
         </div>

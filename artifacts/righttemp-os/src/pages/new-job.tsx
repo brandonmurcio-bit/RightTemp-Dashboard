@@ -38,8 +38,8 @@ export default function NewJobPage() {
     queryParams.get("customerId") ?? "",
   );
   const [title, setTitle] = useState("HVAC Installation");
-  const [installDate, setInstallDate] = useState("");
-  const [installTime, setInstallTime] = useState("");
+  const [installDate, setInstallDate] = useState(queryParams.get("date") ?? "");
+  const [installTime, setInstallTime] = useState(queryParams.get("date") ? "08:00" : "");
   const [crewLead, setCrewLead] = useState("");
   const [estimatedHours, setEstimatedHours] = useState("8");
   const [priority, setPriority] = useState<JobPriority>("medium");

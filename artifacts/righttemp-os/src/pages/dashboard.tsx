@@ -197,7 +197,7 @@ export default function DashboardPage() {
                 </Link>
 
                 <Link
-                  href="/jobs/new"
+                  href="/schedule"
                   className="group flex items-center gap-3 rounded-2xl border border-violet-500/20 bg-violet-500/[0.06] p-4 hover:bg-violet-500/[0.12] hover:border-violet-500/35 transition-all"
                 >
                   <div className="rounded-xl bg-violet-500/15 p-2.5">
@@ -205,9 +205,9 @@ export default function DashboardPage() {
                   </div>
 
                   <div className="min-w-0">
-                    <p className="text-sm font-semibold">Schedule Job</p>
+                    <p className="text-sm font-semibold">Schedule</p>
                     <p className="text-[11px] text-muted-foreground mt-0.5">
-                      Open scheduler
+                      View calendar
                     </p>
                   </div>
                 </Link>
