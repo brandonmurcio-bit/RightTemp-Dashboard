@@ -20,6 +20,7 @@ import {
 } from "@/features/estimates/estimates.hooks";
 import type { Estimate, EstimateInput, EstimateStatus } from "@/features/estimates/estimates.types";
 import { useToast } from "@/hooks/use-toast";
+import { EstimateWalkthroughPhotos } from "@/components/estimate-walkthrough-photos";
 
 const money = new Intl.NumberFormat("en-US", { style: "currency", currency: "USD" });
 const statusColors: Record<EstimateStatus, string> = {
@@ -191,7 +192,7 @@ export default function EstimatesPage() {
               </div>
               <div className="rounded-lg border p-4 flex justify-between"><span className="text-muted-foreground">Estimate total</span><strong className="text-xl">{money.format(total)}</strong></div>
               <div className="space-y-2"><Label>Valid until</Label><Input type="date" value={validUntil} onChange={(e) => setValidUntil(e.target.value)} /></div>
-              <div className="space-y-2"><Label>Customer notes</Label><Textarea value={notes} onChange={(e) => setNotes(e.target.value)} placeholder="Warranty, payment schedule, exclusions..." /></div>
+              <div className="space-y-2"><Label>Walkthrough & customer notes</Label><Textarea value={notes} onChange={(e) => setNotes(e.target.value)} placeholder="Equipment condition, access, electrical, ductwork, measurements, customer requests..." /></div>
               <Button className="w-full" onClick={submit} disabled={createEstimate.isPending || editEstimate.isPending}>{createEstimate.isPending || editEstimate.isPending ? "Saving..." : editingId ? "Save Changes" : "Save Draft Estimate"}</Button>
             </div>
           </DialogContent>
@@ -217,6 +218,13 @@ export default function EstimatesPage() {
                 <Button size="sm" variant="outline" onClick={() => beginEdit(estimate)}><Pencil className="h-4 w-4 mr-2" />Edit</Button>
                 <Button size="sm" variant="outline" className="text-destructive" disabled={deleteEstimate.isPending} onClick={() => removeEstimate(estimate)}><Trash2 className="h-4 w-4" /></Button>
               </div>
+              {estimate.notes && (
+                <div className="rounded-md bg-muted/40 p-3">
+                  <p className="mb-1 text-xs font-semibold">Walkthrough Notes</p>
+                  <p className="whitespace-pre-wrap text-sm text-muted-foreground">{estimate.notes}</p>
+                </div>
+              )}
+              <EstimateWalkthroughPhotos estimateId={estimate.id} />
             </CardContent>
           </Card>
         ))}

@@ -3,6 +3,7 @@ import { useLocation, useParams } from "wouter";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { useJob } from "@/features/jobs/jobs.hooks";
+import { JobWalkthroughCard } from "@/components/job-walkthrough-card";
 
 const dateFormatter = new Intl.DateTimeFormat(undefined, {
   dateStyle: "full",
@@ -90,6 +91,8 @@ export default function JobDetailPage() {
           </CardContent>
         </Card>
       )}
+
+      <JobWalkthroughCard jobId={job.id} />
     </div>
   );
 }
