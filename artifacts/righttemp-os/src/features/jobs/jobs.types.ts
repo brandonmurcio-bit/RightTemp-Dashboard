@@ -1,65 +1,54 @@
 export type JobStatus =
-  | "scheduled"
-  | "in_progress"
-  | "completed"
-  | "cancelled";
+  "scheduled" | "in_progress" | "on_hold" | "completed" | "cancelled";
+export type JobPriority = "low" | "medium" | "high" | "urgent";
 
 export interface Job {
   id: string;
-
   organizationId: string;
-
   leadId: string | null;
-  customerId: string | null;
-
+  customerId: string;
   title: string;
-
-  estimatePrice: number | null;
-
-  equipment: string | null;
-
-  scopeOfWork: string | null;
-
-  scheduledDate: string | null;
-  scheduledTime: string | null;
-
-  estimatedHours: number | null;
-
-  crewLead: string | null;
-
-  installStatus: JobStatus;
-
+  description: string | null;
+  serviceType: string | null;
+  status: JobStatus;
+  priority: JobPriority;
+  scheduledStart: string | null;
+  scheduledEnd: string | null;
+  completedAt: string | null;
+  assignedTo: string | null;
   notes: string | null;
-
   createdAt: string;
+  updatedAt: string;
 }
 
 export interface JobRow {
   id: string;
-
   organization_id: string;
-
   lead_id: string | null;
-  customer_id: string | null;
-
+  customer_id: string;
   title: string;
-
-  estimate_price: number | null;
-
-  equipment: string | null;
-
-  scope_of_work: string | null;
-
-  scheduled_date: string | null;
-  scheduled_time: string | null;
-
-  estimated_hours: number | null;
-
-  crew_lead: string | null;
-
-  install_status: JobStatus;
-
+  description: string | null;
+  service_type: string | null;
+  status: JobStatus;
+  priority: JobPriority;
+  scheduled_start: string | null;
+  scheduled_end: string | null;
+  completed_at: string | null;
+  assigned_to: string | null;
   notes: string | null;
-
   created_at: string;
+  updated_at: string;
+}
+
+export interface JobInput {
+  leadId?: string;
+  customerId: string;
+  title: string;
+  description?: string;
+  serviceType?: string;
+  priority: JobPriority;
+  scheduledStart?: string;
+  scheduledEnd?: string;
+  assignedTo?: string;
+  notes?: string;
 }

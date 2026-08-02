@@ -214,6 +214,13 @@ export default function CustomerDetailPage() {
           </div>
         </div>
         <div className="flex items-center gap-2">
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={() => setLocation(`/jobs/new?customerId=${customer.id}`)}
+          >
+            <Calendar className="w-4 h-4 mr-2" /> Schedule Job
+          </Button>
           <AlertDialog>
             <AlertDialogTrigger asChild>
               <Button
