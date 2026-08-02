@@ -81,3 +81,50 @@ export async function updateJob(id: string, input: JobUpdateInput): Promise<Job>
   if (error) throw new Error(`Unable to update job: ${error.message}`);
   return mapJobRowToJob(data as JobRow);
 }
+
+export async function deleteJob(id: string): Promise<void> {
+  const organizationId = await getCurrentOrganizationId();
+
+  const { data: payments, error: paymentsError } = await supabase
+    .from("payments")
+    .select("id")
+    .eq("organization_id", organizationId)
+    .eq("job_id", id)
+    .limit(1);
+  if (paymentsError) {
+    throw new Error(`Unable to verify job payments: ${paymentsError.message}`);
+  }
+  if (payments?.length) {
+    throw new Error("This job has a payment record. Remove or void that payment before deleting the job.");
+  }
+
+  const { data: documents, error: documentsError } = await supabase
+    .from("job_documents")
+    .select("storage_path")
+    .eq("organization_id", organizationId)
+    .eq("job_id", id);
+  if (documentsError) {
+    throw new Error(`Unable to verify job files: ${documentsError.message}`);
+  }
+
+  const storagePaths = (documents ?? []).map((document) => document.storage_path);
+  if (storagePaths.length) {
+    const { error: storageError } = await supabase.storage
+      .from("job-documents")
+      .remove(storagePaths);
+    if (storageError) {
+      throw new Error(`Unable to remove job files: ${storageError.message}`);
+    }
+  }
+
+  const { data: deletedJobs, error } = await supabase
+    .from("jobs")
+    .delete()
+    .eq("id", id)
+    .eq("organization_id", organizationId)
+    .select("id");
+  if (error) throw new Error(`Unable to delete job: ${error.message}`);
+  if (!deletedJobs?.length) {
+    throw new Error("The job was not deleted. Only an organization admin can delete jobs.");
+  }
+}

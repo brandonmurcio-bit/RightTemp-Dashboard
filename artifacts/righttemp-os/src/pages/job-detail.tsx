@@ -41,7 +41,7 @@ export default function JobDetailPage() {
         </div>
         </div>
         <div className="flex flex-wrap gap-2">
-          <EditJobDialog job={job} />
+          <EditJobDialog job={job} onDeleted={() => setLocation("/jobs")} />
           <Button variant="outline" onClick={() => setLocation(`/estimates?customerId=${job.customerId}`)}>
             <FileText className="h-4 w-4 mr-2" /> Create Estimate
           </Button>

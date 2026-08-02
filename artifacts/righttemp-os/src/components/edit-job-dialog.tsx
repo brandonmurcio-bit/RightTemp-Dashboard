@@ -1,13 +1,14 @@
 import { useState } from "react";
 import { useQueryClient } from "@tanstack/react-query";
-import { Pencil, Save } from "lucide-react";
+import { Pencil, Save, Trash2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Textarea } from "@/components/ui/textarea";
-import { jobQueryKeys, useUpdateJob } from "@/features/jobs/jobs.hooks";
+import { dashboardQueryKeys } from "@/features/dashboard/dashboard.hooks";
+import { jobQueryKeys, useDeleteJob, useUpdateJob } from "@/features/jobs/jobs.hooks";
 import type { Job, JobPriority, JobStatus } from "@/features/jobs/jobs.types";
 import { useToast } from "@/hooks/use-toast";
 
@@ -32,10 +33,11 @@ function jobHours(job: Job): string {
   return hours > 0 ? String(hours) : "8";
 }
 
-export function EditJobDialog({ job }: { job: Job }) {
+export function EditJobDialog({ job, onDeleted }: { job: Job; onDeleted?: () => void }) {
   const queryClient = useQueryClient();
   const { toast } = useToast();
   const updateJob = useUpdateJob();
+  const deleteJob = useDeleteJob();
   const [open, setOpen] = useState(false);
   const [title, setTitle] = useState(job.title);
   const [status, setStatus] = useState<JobStatus>(job.status);
@@ -108,6 +110,25 @@ export function EditJobDialog({ job }: { job: Job }) {
     );
   };
 
+  const remove = () => {
+    const confirmed = window.confirm(
+      `Permanently delete ${job.title}? Its job costs, receipts, and job files will also be deleted. The customer and estimate will remain. This cannot be undone.`,
+    );
+    if (!confirmed) return;
+    deleteJob.mutate(job.id, {
+      onSuccess: () => {
+        queryClient.removeQueries({ queryKey: jobQueryKeys.detail(job.id) });
+        queryClient.invalidateQueries({ queryKey: jobQueryKeys.list() });
+        queryClient.invalidateQueries({ queryKey: dashboardQueryKeys.stats });
+        setOpen(false);
+        toast({ title: "Job deleted" });
+        onDeleted?.();
+      },
+      onError: (error) =>
+        toast({ title: "Job deletion failed", description: error.message, variant: "destructive" }),
+    });
+  };
+
   return (
     <Dialog open={open} onOpenChange={(next) => { setOpen(next); if (next) reset(); }}>
       <DialogTrigger asChild>
@@ -132,7 +153,12 @@ export function EditJobDialog({ job }: { job: Job }) {
           </div>
           <div className="space-y-2"><Label>Description</Label><Textarea value={description} onChange={(event) => setDescription(event.target.value)} /></div>
           <div className="space-y-2"><Label>Internal job notes</Label><Textarea value={notes} onChange={(event) => setNotes(event.target.value)} /></div>
-          <Button className="w-full" onClick={save} disabled={updateJob.isPending}><Save className="mr-2 h-4 w-4" />{updateJob.isPending ? "Saving..." : "Save Job Changes"}</Button>
+          <Button className="w-full" onClick={save} disabled={updateJob.isPending || deleteJob.isPending}><Save className="mr-2 h-4 w-4" />{updateJob.isPending ? "Saving..." : "Save Job Changes"}</Button>
+          <div className="border-t pt-4">
+            <Button type="button" variant="destructive" className="w-full" onClick={remove} disabled={updateJob.isPending || deleteJob.isPending}>
+              <Trash2 className="mr-2 h-4 w-4" />{deleteJob.isPending ? "Deleting Job..." : "Delete Job"}
+            </Button>
+          </div>
         </div>
       </DialogContent>
     </Dialog>
