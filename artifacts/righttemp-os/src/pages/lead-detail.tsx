@@ -1,25 +1,51 @@
-import React, { useEffect, useRef } from 'react';
-import { useParams, useLocation } from 'wouter';
-import { 
-  useGetLead, 
-  useUpdateLead, 
-  useDeleteLead, 
-  getGetLeadQueryKey,
-  getGetLeadsQueryKey,
-  getGetDashboardStatsQueryKey
-} from '@workspace/api-client-react';
-import { useQueryClient } from '@tanstack/react-query';
-import { useForm } from 'react-hook-form';
-import { zodResolver } from '@hookform/resolvers/zod';
-import * as z from 'zod';
-import { ChevronLeft, Save, Trash2, Calendar, Clock, MapPin, Building, ArrowRight } from 'lucide-react';
-import { Button } from '@/components/ui/button';
-import { Input } from '@/components/ui/input';
-import { Label } from '@/components/ui/label';
-import { Textarea } from '@/components/ui/textarea';
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
-import { useToast } from '@/hooks/use-toast';
-import { 
+import React, { useEffect, useRef } from "react";
+import { useLocation, useParams } from "wouter";
+import { useQueryClient } from "@tanstack/react-query";
+import { useForm } from "react-hook-form";
+import { zodResolver } from "@hookform/resolvers/zod";
+import * as z from "zod";
+import {
+  ArrowRight,
+  Calendar,
+  ChevronLeft,
+  Save,
+  Trash2,
+} from "lucide-react";
+
+import {
+  dashboardQueryKeys,
+  leadQueryKeys,
+  useDeleteLead,
+  useLead,
+  useUpdateLead,
+} from "@/features/leads/leads.hooks";
+import type {
+  Lead,
+  LeadInput,
+  LeadStatus,
+} from "@/features/leads/leads.types";
+import { useToast } from "@/hooks/use-toast";
+
+import { Button } from "@/components/ui/button";
+  import {
+    Card,
+    CardContent,
+    CardDescription,
+    CardHeader,
+    CardTitle,
+  } from "@/components/ui/card";
+
+  import { Textarea } from "@/components/ui/textarea";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
+import {
   AlertDialog,
   AlertDialogAction,
   AlertDialogCancel,
@@ -29,239 +55,531 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
   AlertDialogTrigger,
-} from '@/components/ui/alert-dialog';
-import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
+} from "@/components/ui/alert-dialog";
 
 const leadUpdateSchema = z.object({
-  name: z.string().min(1, 'Name is required'),
-  email: z.string().email().or(z.literal('')),
-  phone: z.string().min(1, 'Phone is required'),
-  address: z.string().optional(),
-  status: z.enum(['new', 'contacted', 'qualified', 'proposal', 'won', 'lost']),
-  source: z.enum(['website', 'referral', 'phone', 'walk_in', 'social_media', 'other']),
-  serviceType: z.string().optional(),
-  notes: z.string().optional(),
+  name: z.string().trim().min(1, "Name is required"),
+
+  email: z
+    .string()
+    .trim()
+    .email("Enter a valid email address")
+    .or(z.literal("")),
+
+  phone: z.string().trim().min(1, "Phone is required"),
+
+  status: z.enum([
+    "new",
+    "contacted",
+    "qualified",
+    "proposal",
+    "won",
+    "lost",
+  ]),
+
+source: z.enum([
+  "website",
+  "referral",
+  "phone",
+  "walk_in",
+  "social_media",
+  "other",
+]),
+
+  serviceType: z.string().trim().optional(),
+
+  estimatePrice: z.coerce.number().optional(),
+
+  equipment: z.string().optional(),
+
+  scopeOfWork: z.string().optional(),
 });
 
-type LeadUpdateValues = z.infer<typeof leadUpdateSchema>;
+type LeadUpdateValues = z.infer<typeof PO>;
 
+const pipelineStages: LeadStatus[] = [
+  "new",
+  "contacted",
+  "qualified",
+  "proposal",
+  "won",
+];
+
+function getLeadFormValues(lead: Lead): LeadUpdateValues {
+  return {
+    name: lead.name,
+    email: lead.email ?? "",
+    phone: lead.phone,
+    status: lead.status,
+    source: lead.source,
+    serviceType: lead.serviceType ?? "",
+
+    estimatePrice: lead.estimatePrice ?? undefined,
+    equipment: lead.equipment ?? "",
+    scopeOfWork: lead.scopeOfWork ?? "",
+  };
+}
 export default function LeadDetailPage() {
-  const params = useParams();
-  const id = Number(params.id);
-  const [, setLocation] = useLocation();
-  const { toast } = useToast();
-  const queryClient = useQueryClient();
+  const params = useParams<{ id: string }>();
+  const id = params.id ?? "";
 
-  const { data: lead, isLoading } = useGetLead(id, { query: { enabled: !!id, queryKey: getGetLeadQueryKey(id) } });
+  const [, setLocation] = useLocation();
+  const queryClient = useQueryClient();
+  const { toast } = useToast();
+  
+
+  const {
+    data: lead,
+    isLoading,
+    isError,
+  } = useLead(id);
+
   const updateLead = useUpdateLead();
   const deleteLead = useDeleteLead();
 
   const form = useForm<LeadUpdateValues>({
     resolver: zodResolver(leadUpdateSchema),
     defaultValues: {
-      name: '', email: '', phone: '', address: '', status: 'new', source: 'phone', serviceType: '', notes: ''
-    }
+      name: "",
+      email: "",
+      phone: "",
+      status: "new",
+      source: "phone",
+      serviceType: "",
+
+      estimatePrice: undefined,
+      equipment: "",
+      scopeOfWork: "",
+    },
   });
 
-  const initializedForId = useRef<number | null>(null);
+  const initializedForId = useRef<string | null>(null);
 
   useEffect(() => {
     if (lead && initializedForId.current !== id) {
       initializedForId.current = id;
-      form.reset({
-        name: lead.name,
-        email: lead.email || '',
-        phone: lead.phone,
-        address: lead.address || '',
-        status: lead.status,
-        source: lead.source,
-        serviceType: lead.serviceType || '',
-        notes: lead.notes || '',
-      });
+      form.reset(getLeadFormValues(lead));
     }
-  }, [lead, id, form]);
+  }, [form, id, lead]);
 
-  const onSubmit = (data: LeadUpdateValues) => {
-    updateLead.mutate({ id, data }, {
-      onSuccess: (updated) => {
-        queryClient.setQueryData(getGetLeadQueryKey(id), updated);
-        queryClient.invalidateQueries({ queryKey: getGetLeadsQueryKey() });
-        queryClient.invalidateQueries({ queryKey: getGetDashboardStatsQueryKey() });
-        toast({ title: 'Lead updated', description: 'Changes saved successfully.' });
+  const updateCachedLead = (updatedLead: Lead) => {
+    queryClient.setQueryData(
+      leadQueryKeys.detail(updatedLead.id),
+      updatedLead,
+    );
+
+    queryClient.setQueryData<Lead[]>(
+      leadQueryKeys.list(),
+      (currentLeads) =>
+        currentLeads?.map((currentLead) =>
+          currentLead.id === updatedLead.id ? updatedLead : currentLead,
+        ),
+    );
+  };
+
+  const onSubmit = (values: LeadUpdateValues) => {
+    const data: LeadInput = {
+      ...values,
+      email: values.email || undefined,
+      serviceType: values.serviceType || undefined,
+    };
+
+    updateLead.mutate(
+      {
+        id,
+        data,
       },
-      onError: () => {
-        toast({ title: 'Error', description: 'Failed to update lead.', variant: 'destructive' });
-      }
-    });
+      {
+        onSuccess: (updatedLead) => {
+          updateCachedLead(updatedLead);
+          form.reset(getLeadFormValues(updatedLead));
+
+          queryClient.invalidateQueries({
+            queryKey: dashboardQueryKeys.stats,
+          });
+
+          toast({
+            title: "Lead updated",
+            description: "Changes saved successfully.",
+          });
+        },
+        onError: (error) => {
+          toast({
+            title: "Unable to update lead",
+            description:
+              error instanceof Error
+                ? error.message
+                : "Failed to update the lead.",
+            variant: "destructive",
+          });
+        },
+      },
+    );
   };
 
   const handleDelete = () => {
-    deleteLead.mutate({ id }, {
+    deleteLead.mutate(id, {
       onSuccess: () => {
-        queryClient.invalidateQueries({ queryKey: getGetLeadsQueryKey() });
-        queryClient.invalidateQueries({ queryKey: getGetDashboardStatsQueryKey() });
-        toast({ title: 'Lead deleted', description: 'Lead has been permanently removed.' });
-        setLocation('/leads');
+        queryClient.removeQueries({
+          queryKey: leadQueryKeys.detail(id),
+        });
+
+        queryClient.invalidateQueries({
+          queryKey: leadQueryKeys.list(),
+        });
+
+        queryClient.invalidateQueries({
+          queryKey: dashboardQueryKeys.stats,
+        });
+
+        toast({
+          title: "Lead deleted",
+          description: "The lead has been permanently removed.",
+        });
+
+        setLocation("/leads");
       },
-      onError: () => {
-        toast({ title: 'Error', description: 'Failed to delete lead.', variant: 'destructive' });
-      }
+      onError: (error) => {
+        toast({
+          title: "Unable to delete lead",
+          description:
+            error instanceof Error
+              ? error.message
+              : "Failed to delete the lead.",
+          variant: "destructive",
+        });
+      },
     });
   };
 
-  const advanceStatus = (newStatus: LeadUpdateValues['status']) => {
-    form.setValue('status', newStatus, { shouldDirty: true });
-    form.handleSubmit(onSubmit)();
+  const advanceStatus = (newStatus: LeadStatus) => {
+    form.setValue("status", newStatus, {
+      shouldDirty: true,
+      shouldValidate: true,
+    });
+
+    void form.handleSubmit(onSubmit)();
   };
 
+  if (!id) {
+    return (
+      <div className="p-8 text-destructive">
+        Invalid lead ID.
+      </div>
+    );
+  }
+
   if (isLoading) {
-    return <div className="p-8 animate-pulse text-muted-foreground">Loading lead details...</div>;
+    return (
+      <div className="p-8 animate-pulse text-muted-foreground">
+        Loading lead details...
+      </div>
+    );
+  }
+
+  if (isError) {
+    return (
+      <div className="p-8 text-destructive">
+        Unable to load this lead.
+      </div>
+    );
   }
 
   if (!lead) {
-    return <div className="p-8 text-destructive">Lead not found.</div>;
+    return (
+      <div className="p-8 text-destructive">
+        Lead not found.
+      </div>
+    );
   }
 
-  const pipelineStages = ['new', 'contacted', 'qualified', 'proposal', 'won'];
-  const currentStageIndex = pipelineStages.indexOf(lead.status);
+  const displayedStatus = form.watch("status");
+  const currentStageIndex = pipelineStages.indexOf(displayedStatus);
+
+  const nextStage =
+    currentStageIndex >= 0 &&
+    currentStageIndex < pipelineStages.length - 1
+      ? pipelineStages[currentStageIndex + 1]
+      : null;
 
   return (
     <div className="max-w-4xl mx-auto p-4 md:p-8 space-y-6 animate-in fade-in duration-300">
-      <div className="flex items-center justify-between">
+      <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
         <div className="flex items-center gap-4">
-          <Button variant="ghost" size="icon" onClick={() => setLocation('/leads')} className="rounded-full">
+          <Button
+            variant="ghost"
+            size="icon"
+            onClick={() => setLocation("/leads")}
+            className="rounded-full"
+          >
             <ChevronLeft className="w-5 h-5" />
           </Button>
+
           <div>
-            <h1 className="text-2xl font-bold tracking-tight">{lead.name}</h1>
-            <p className="text-sm text-muted-foreground">Lead #{lead.id}</p>
+            <h1 className="text-2xl font-bold tracking-tight">
+              {lead.name}
+            </h1>
+            <p className="text-sm text-muted-foreground">
+              Lead #{lead.id}
+            </p>
           </div>
         </div>
+
         <div className="flex items-center gap-2">
           <AlertDialog>
             <AlertDialogTrigger asChild>
-              <Button data-testid="button-delete-lead" variant="outline" size="sm" className="text-destructive border-destructive/20 hover:bg-destructive/10">
-                <Trash2 className="w-4 h-4 mr-2" /> Delete
+              <Button
+                data-testid="button-delete-lead"
+                variant="outline"
+                size="sm"
+                disabled={deleteLead.isPending}
+                className="text-destructive border-destructive/20 hover:bg-destructive/10"
+              >
+                <Trash2 className="w-4 h-4 mr-2" />
+                {deleteLead.isPending ? "Deleting..." : "Delete"}
               </Button>
             </AlertDialogTrigger>
+
             <AlertDialogContent>
               <AlertDialogHeader>
-                <AlertDialogTitle>Are you sure?</AlertDialogTitle>
+                <AlertDialogTitle>
+                  Are you sure?
+                </AlertDialogTitle>
+
                 <AlertDialogDescription>
-                  This action cannot be undone. This will permanently delete the lead.
+                  This action cannot be undone. This will permanently
+                  delete the lead.
                 </AlertDialogDescription>
               </AlertDialogHeader>
+
               <AlertDialogFooter>
                 <AlertDialogCancel>Cancel</AlertDialogCancel>
-                <AlertDialogAction data-testid="button-confirm-delete" onClick={handleDelete} className="bg-destructive text-destructive-foreground">
+
+                <AlertDialogAction
+                  data-testid="button-confirm-delete"
+                  onClick={handleDelete}
+                  className="bg-destructive text-destructive-foreground"
+                >
                   Delete
                 </AlertDialogAction>
               </AlertDialogFooter>
             </AlertDialogContent>
           </AlertDialog>
-          <Button data-testid="button-save-lead" size="sm" onClick={form.handleSubmit(onSubmit)} disabled={!form.formState.isDirty || updateLead.isPending}>
-            <Save className="w-4 h-4 mr-2" /> 
-            {updateLead.isPending ? 'Saving...' : 'Save Changes'}
+
+          <Button
+            data-testid="button-save-lead"
+            size="sm"
+            onClick={form.handleSubmit(onSubmit)}
+            disabled={
+              !form.formState.isDirty ||
+              updateLead.isPending ||
+              deleteLead.isPending
+            }
+          >
+            <Save className="w-4 h-4 mr-2" />
+            {updateLead.isPending ? "Saving..." : "Save Changes"}
           </Button>
         </div>
       </div>
 
-      {/* Pipeline Status Bar */}
       <Card className="overflow-hidden border-primary/20 bg-primary/5">
         <CardContent className="p-4 md:p-6">
           <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
             <div className="flex-1">
-              <h3 className="text-sm font-medium mb-3">Pipeline Status</h3>
+              <h3 className="text-sm font-medium mb-3">
+                Pipeline Status
+              </h3>
+
               <div className="flex items-center gap-2">
-                {pipelineStages.map((stage, i) => (
-                  <React.Fragment key={stage}>
-                    <div 
-                      className={`flex-1 h-2 rounded-full transition-colors ${
-                        i <= currentStageIndex ? 'bg-primary' : 'bg-primary/20'
-                      }`}
-                    />
-                  </React.Fragment>
+                {pipelineStages.map((stage, index) => (
+                  <div
+                    key={stage}
+                    className={`flex-1 h-2 rounded-full transition-colors ${
+                      currentStageIndex >= 0 &&
+                      index <= currentStageIndex
+                        ? "bg-primary"
+                        : "bg-primary/20"
+                    }`}
+                  />
                 ))}
               </div>
+
               <div className="flex justify-between mt-2 px-1">
                 {pipelineStages.map((stage) => (
-                  <span key={stage} className={`text-[10px] uppercase font-bold tracking-wider ${
-                    stage === lead.status ? 'text-primary' : 'text-muted-foreground'
-                  }`}>
+                  <span
+                    key={stage}
+                    className={`text-[10px] uppercase font-bold tracking-wider ${
+                      stage === displayedStatus
+                        ? "text-primary"
+                        : "text-muted-foreground"
+                    }`}
+                  >
                     {stage}
                   </span>
                 ))}
               </div>
             </div>
-            
-            <div className="flex items-center gap-2 mt-4 md:mt-0 pt-4 md:pt-0 border-t border-border/50 md:border-t-0 md:border-l md:pl-6">
-              {currentStageIndex < pipelineStages.length - 1 && lead.status !== 'lost' && (
-                <Button 
-                  size="sm" 
-                  onClick={() => advanceStatus(pipelineStages[currentStageIndex + 1] as any)}
+
+            <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-2 mt-4 md:mt-0 pt-4 md:pt-0 border-t border-border/50 md:border-t-0 md:border-l md:pl-6">
+              {nextStage && displayedStatus !== "lost" && (
+                <Button
+                  size="sm"
+                  disabled={updateLead.isPending}
+                  onClick={() => advanceStatus(nextStage)}
                   className="w-full md:w-auto shadow-sm"
                 >
-                  Advance to {pipelineStages[currentStageIndex + 1]} <ArrowRight className="w-4 h-4 ml-2" />
+                  Advance to {nextStage}
+                  <ArrowRight className="w-4 h-4 ml-2" />
                 </Button>
               )}
-              {lead.status !== 'won' && lead.status !== 'lost' && (
-                <Button 
-                  size="sm" 
-                  variant="outline"
-                  onClick={() => advanceStatus('lost')}
-                  className="text-destructive hover:text-destructive hover:bg-destructive/10 border-destructive/20"
-                >
-                  Mark as Lost
-                </Button>
-              )}
+
+              {displayedStatus !== "won" &&
+                displayedStatus !== "lost" && (
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    disabled={updateLead.isPending}
+                    onClick={() => advanceStatus("lost")}
+                    className="text-destructive hover:text-destructive hover:bg-destructive/10 border-destructive/20"
+                  >
+                    Mark as Lost
+                  </Button>
+                )}
             </div>
           </div>
         </CardContent>
       </Card>
+  
+      {form.watch("status") === "proposal" && (
+        <Card>
+          <CardHeader>
+            <CardTitle>Proposal</CardTitle>
+            <CardDescription>
+              Estimate details for this customer.
+            </CardDescription>
+          </CardHeader>
 
+          <CardContent className="space-y-4">
+            <div className="space-y-2">
+              <Label>Estimate Price</Label>
+              <Input
+                type="number"
+                placeholder="12000"
+                {...form.register("estimatePrice", { valueAsNumber: true })}
+              />
+            </div>
+
+            <div className="space-y-2">
+              <Label>Equipment</Label>
+              <Input
+                placeholder="Daikin Fit 4 Ton"
+                {...form.register("equipment")}
+              />
+            </div>
+
+            <div className="space-y-2">
+              <Label>Scope of Work</Label>
+              <Textarea
+                rows={6}
+                placeholder="Install new condenser, air handler, thermostat, refrigerant lines..."
+                {...form.register("scopeOfWork")}
+              />
+            </div>
+          </CardContent>
+        </Card>
+      )}
+      {form.watch("status") === "won" && (
+        <Card>
+          <CardHeader>
+            <CardTitle>🎉 Sale Won</CardTitle>
+            <CardDescription>
+              This lead is ready to become a scheduled installation.
+            </CardDescription>
+          </CardHeader>
+
+          <CardContent>
+            <Button
+              className="w-full"
+              size="lg"
+              onClick={() => setLocation(`/jobs/new?leadId=${lead.id}`)}
+            >
+              📅 Schedule Installation
+            </Button>
+          </CardContent>
+        </Card>
+      )}
       <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-        <div className="md:col-span-2 space-y-6">
+        <div className="md:col-span-2">
           <Card>
             <CardHeader>
-              <CardTitle className="text-lg">Contact Information</CardTitle>
+              <CardTitle className="text-lg">
+                Contact Information
+              </CardTitle>
             </CardHeader>
+
             <CardContent>
-              <form id="lead-form" className="space-y-4">
+              <form
+                id="lead-form"
+                onSubmit={form.handleSubmit(onSubmit)}
+                className="space-y-4"
+              >
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                   <div className="space-y-2">
                     <Label htmlFor="name">Full Name</Label>
-                    <Input id="name" {...form.register('name')} />
-                    {form.formState.errors.name && <span className="text-xs text-destructive">{form.formState.errors.name.message}</span>}
+                    <Input
+                      id="name"
+                      {...form.register("name")}
+                    />
+
+                    {form.formState.errors.name && (
+                      <span className="text-xs text-destructive">
+                        {form.formState.errors.name.message}
+                      </span>
+                    )}
                   </div>
+
                   <div className="space-y-2">
-                    <Label htmlFor="serviceType">Service Requested</Label>
-                    <Input id="serviceType" {...form.register('serviceType')} />
+                    <Label htmlFor="serviceType">
+                      Service Requested
+                    </Label>
+                    <Input
+                      id="serviceType"
+                      {...form.register("serviceType")}
+                    />
                   </div>
                 </div>
 
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                   <div className="space-y-2">
                     <Label htmlFor="phone">Phone</Label>
-                    <Input id="phone" {...form.register('phone')} />
-                    {form.formState.errors.phone && <span className="text-xs text-destructive">{form.formState.errors.phone.message}</span>}
+                    <Input
+                      id="phone"
+                      {...form.register("phone")}
+                    />
+
+                    {form.formState.errors.phone && (
+                      <span className="text-xs text-destructive">
+                        {form.formState.errors.phone.message}
+                      </span>
+                    )}
                   </div>
+
                   <div className="space-y-2">
-                    <Label htmlFor="email">Email Address</Label>
-                    <Input id="email" type="email" {...form.register('email')} />
-                  </div>
-                </div>
+                    <Label htmlFor="email">
+                      Email Address
+                    </Label>
+                    <Input
+                      id="email"
+                      type="email"
+                      {...form.register("email")}
+                    />
 
-                <div className="space-y-2">
-                  <Label htmlFor="address">Service Address</Label>
-                  <div className="relative">
-                    <MapPin className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
-                    <Input id="address" {...form.register('address')} className="pl-9" />
+                    {form.formState.errors.email && (
+                      <span className="text-xs text-destructive">
+                        {form.formState.errors.email.message}
+                      </span>
+                    )}
                   </div>
-                </div>
-
-                <div className="space-y-2 pt-4">
-                  <Label htmlFor="notes">Internal Notes</Label>
-                  <Textarea id="notes" {...form.register('notes')} rows={6} className="resize-none" placeholder="Add specifics about their HVAC setup, property size, budget, etc." />
                 </div>
               </form>
             </CardContent>
@@ -271,20 +589,43 @@ export default function LeadDetailPage() {
         <div className="space-y-6">
           <Card>
             <CardHeader>
-              <CardTitle className="text-lg">Attributes</CardTitle>
+              <CardTitle className="text-lg">
+                Attributes
+              </CardTitle>
             </CardHeader>
+
             <CardContent className="space-y-4">
               <div className="space-y-2">
                 <Label>Status</Label>
-                <Select onValueChange={(v) => { form.setValue('status', v as any, { shouldDirty: true }); }} value={form.watch('status')}>
+
+                <Select
+                  value={form.watch("status")}
+                  onValueChange={(value) => {
+                    form.setValue(
+                      "status",
+                      value as LeadUpdateValues["status"],
+                      {
+                        shouldDirty: true,
+                        shouldValidate: true,
+                      },
+                    );
+                  }}
+                >
                   <SelectTrigger>
                     <SelectValue />
                   </SelectTrigger>
+
                   <SelectContent>
                     <SelectItem value="new">New</SelectItem>
-                    <SelectItem value="contacted">Contacted</SelectItem>
-                    <SelectItem value="qualified">Qualified</SelectItem>
-                    <SelectItem value="proposal">Proposal</SelectItem>
+                    <SelectItem value="contacted">
+                      Contacted
+                    </SelectItem>
+                    <SelectItem value="qualified">
+                      Qualified
+                    </SelectItem>
+                    <SelectItem value="proposal">
+                      Proposal
+                    </SelectItem>
                     <SelectItem value="won">Won</SelectItem>
                     <SelectItem value="lost">Lost</SelectItem>
                   </SelectContent>
@@ -293,17 +634,43 @@ export default function LeadDetailPage() {
 
               <div className="space-y-2">
                 <Label>Lead Source</Label>
-                <Select onValueChange={(v) => { form.setValue('source', v as any, { shouldDirty: true }); }} value={form.watch('source')}>
+
+                <Select
+                  value={form.watch("source")}
+                  onValueChange={(value) => {
+                    form.setValue(
+                      "source",
+                      value as LeadUpdateValues["source"],
+                      {
+                        shouldDirty: true,
+                        shouldValidate: true,
+                      },
+                    );
+                  }}
+                >
                   <SelectTrigger>
                     <SelectValue />
                   </SelectTrigger>
+
                   <SelectContent>
-                    <SelectItem value="website">Website</SelectItem>
-                    <SelectItem value="referral">Referral</SelectItem>
-                    <SelectItem value="phone">Phone</SelectItem>
-                    <SelectItem value="walk_in">Walk-in</SelectItem>
-                    <SelectItem value="social_media">Social Media</SelectItem>
-                    <SelectItem value="other">Other</SelectItem>
+                    <SelectItem value="website">
+                      Website
+                    </SelectItem>
+                    <SelectItem value="referral">
+                      Referral
+                    </SelectItem>
+                    <SelectItem value="phone">
+                      Phone
+                    </SelectItem>
+                    <SelectItem value="walk_in">
+                      Walk-in
+                    </SelectItem>
+                    <SelectItem value="social_media">
+                      Social Media
+                    </SelectItem>
+                    <SelectItem value="other">
+                      Other
+                    </SelectItem>
                   </SelectContent>
                 </Select>
               </div>
@@ -312,19 +679,20 @@ export default function LeadDetailPage() {
 
           <Card>
             <CardHeader>
-              <CardTitle className="text-lg">Metadata</CardTitle>
+              <CardTitle className="text-lg">
+                Metadata
+              </CardTitle>
             </CardHeader>
+
             <CardContent className="space-y-4 text-sm">
-              <div className="flex items-center justify-between text-muted-foreground border-b border-border pb-2">
-                <div className="flex items-center"><Calendar className="w-4 h-4 mr-2" /> Created</div>
+              <div className="flex items-center justify-between text-muted-foreground">
+                <div className="flex items-center">
+                  <Calendar className="w-4 h-4 mr-2" />
+                  Created
+                </div>
+
                 <div className="font-mono text-foreground">
                   {new Date(lead.createdAt).toLocaleDateString()}
-                </div>
-              </div>
-              <div className="flex items-center justify-between text-muted-foreground">
-                <div className="flex items-center"><Clock className="w-4 h-4 mr-2" /> Last Updated</div>
-                <div className="font-mono text-foreground">
-                  {new Date(lead.updatedAt).toLocaleDateString()}
                 </div>
               </div>
             </CardContent>

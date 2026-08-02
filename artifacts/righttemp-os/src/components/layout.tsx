@@ -1,15 +1,22 @@
-import React from 'react';
-import { Link, useLocation } from 'wouter';
-import { Activity, Users, LayoutDashboard, Settings } from 'lucide-react';
-import { PWAPrompt } from './pwa-prompt';
+import React from "react";
+import { Link, useLocation } from "wouter";
+import { Activity, Users, LayoutDashboard, CalendarDays, LogOut } from "lucide-react";
+import { supabase } from "@/lib/supabase";
+import { PWAPrompt } from "./pwa-prompt";
 
 export function Layout({ children }: { children: React.ReactNode }) {
   const [location] = useLocation();
 
+  const handleSignOut = async () => {
+    await supabase.auth.signOut();
+    window.location.reload();
+  };
+
   const navItems = [
-    { label: 'Dashboard', path: '/', icon: LayoutDashboard },
-    { label: 'Leads', path: '/leads', icon: Activity },
-    { label: 'Customers', path: '/customers', icon: Users },
+    { label: "Dashboard", path: "/", icon: LayoutDashboard },
+    { label: "Leads", path: "/leads", icon: Activity },
+    { label: "Customers", path: "/customers", icon: Users },
+    { label: "Jobs", path: "/jobs", icon: CalendarDays },
   ];
 
   return (
@@ -20,19 +27,25 @@ export function Layout({ children }: { children: React.ReactNode }) {
           <div className="w-8 h-8 rounded bg-primary flex items-center justify-center text-primary-foreground font-bold">
             R
           </div>
-          <span className="font-bold text-lg tracking-tight">RightTemp OS</span>
+          <span className="font-bold text-lg tracking-tight">
+            RightTemp OS
+          </span>
         </div>
+
         <nav className="flex flex-col gap-1 flex-1">
           {navItems.map((item) => {
-            const isActive = location === item.path || (item.path !== '/' && location.startsWith(item.path));
+            const isActive =
+              location === item.path ||
+              (item.path !== "/" && location.startsWith(item.path));
+
             return (
               <Link key={item.path} href={item.path}>
                 <div
                   data-testid={`nav-${item.label.toLowerCase()}`}
                   className={`flex items-center gap-3 px-3 py-2.5 rounded-md cursor-pointer transition-colors ${
-                    isActive 
-                      ? 'bg-sidebar-accent text-sidebar-accent-foreground font-medium' 
-                      : 'text-sidebar-foreground/70 hover:bg-sidebar-accent/50 hover:text-sidebar-foreground'
+                    isActive
+                      ? "bg-sidebar-accent text-sidebar-accent-foreground font-medium"
+                      : "text-sidebar-foreground/70 hover:bg-sidebar-accent/50 hover:text-sidebar-foreground"
                   }`}
                 >
                   <item.icon className="w-5 h-5" />
@@ -42,10 +55,15 @@ export function Layout({ children }: { children: React.ReactNode }) {
             );
           })}
         </nav>
-        <div className="mt-auto flex items-center gap-3 px-3 py-2.5 rounded-md cursor-not-allowed text-sidebar-foreground/50 opacity-50">
-          <Settings className="w-5 h-5" />
-          <span>Settings</span>
-        </div>
+
+        <button
+          type="button"
+          onClick={handleSignOut}
+          className="mt-auto flex w-full items-center gap-3 px-3 py-2.5 rounded-md text-sidebar-foreground/70 hover:bg-sidebar-accent/50 hover:text-sidebar-foreground transition-colors"
+        >
+          <LogOut className="w-5 h-5" />
+          <span>Sign Out</span>
+        </button>
       </aside>
 
       {/* Main Content */}
@@ -58,25 +76,37 @@ export function Layout({ children }: { children: React.ReactNode }) {
             </div>
             <span className="font-bold tracking-tight">RightTemp OS</span>
           </div>
+
+          <button
+            type="button"
+            onClick={handleSignOut}
+            className="text-sm px-3 py-1 rounded-md border border-sidebar-border hover:bg-sidebar-accent/50"
+          >
+            Sign Out
+          </button>
         </header>
-        
-        <div className="flex-1">
-          {children}
-        </div>
+
+        <div className="flex-1">{children}</div>
       </main>
 
       {/* Mobile Bottom Nav */}
       <nav className="md:hidden fixed bottom-0 left-0 right-0 h-16 bg-sidebar border-t border-sidebar-border flex items-center justify-around z-50 text-sidebar-foreground px-2">
         {navItems.map((item) => {
-          const isActive = location === item.path || (item.path !== '/' && location.startsWith(item.path));
+          const isActive =
+            location === item.path ||
+            (item.path !== "/" && location.startsWith(item.path));
+
           return (
             <Link key={item.path} href={item.path}>
-              <div 
+              <div
                 data-testid={`mobilenav-${item.label.toLowerCase()}`}
                 className={`flex flex-col items-center justify-center w-16 h-full gap-1 cursor-pointer transition-colors ${
-                isActive ? 'text-primary' : 'text-sidebar-foreground/60'
-              }`}>
-                <item.icon className={`w-5 h-5 ${isActive ? 'fill-primary/20' : ''}`} />
+                  isActive ? "text-primary" : "text-sidebar-foreground/60"
+                }`}
+              >
+                <item.icon
+                  className={`w-5 h-5 ${isActive ? "fill-primary/20" : ""}`}
+                />
                 <span className="text-[10px] font-medium">{item.label}</span>
               </div>
             </Link>
