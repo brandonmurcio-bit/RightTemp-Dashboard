@@ -189,6 +189,11 @@ export default function LeadDetailPage() {
             queryKey: dashboardQueryKeys.stats,
           });
 
+          if (lead?.status !== "won" && updatedLead.status === "won") {
+            handleWonLead(updatedLead);
+            return;
+          }
+
           toast({
             title: "Lead updated",
             description: "Changes saved successfully.",
@@ -253,9 +258,17 @@ export default function LeadDetailPage() {
     void form.handleSubmit(onSubmit)();
   };
 
-  const handleConvertToCustomer = (currentLead: Lead) => {
+  const openJobWizard = (currentLead: Lead, customerId: string) => {
+    const params = new URLSearchParams({
+      leadId: currentLead.id,
+      customerId,
+    });
+    setLocation(`/jobs/new?${params.toString()}`);
+  };
+
+  const handleWonLead = (currentLead: Lead) => {
     if (currentLead.customerId) {
-      setLocation(`/customers/${currentLead.customerId}`);
+      openJobWizard(currentLead, currentLead.customerId);
       return;
     }
 
@@ -280,7 +293,7 @@ export default function LeadDetailPage() {
           description: `${currentLead.name} is now linked to a customer record.`,
         });
 
-        setLocation(`/customers/${customerId}`);
+        openJobWizard(convertedLead, customerId);
       },
       onError: (error) => {
         toast({
@@ -439,13 +452,25 @@ export default function LeadDetailPage() {
                   disabled={updateLead.isPending}
                   onClick={() =>
                     nextStage === "won"
-                      ? handleConvertToCustomer(lead)
+                      ? handleWonLead(lead)
                       : advanceStatus(nextStage)
                   }
                   className="w-full md:w-auto shadow-sm"
                 >
                   Advance to {nextStage}
                   <ArrowRight className="w-4 h-4 ml-2" />
+                </Button>
+              )}
+
+              {displayedStatus === "won" && (
+                <Button
+                  size="sm"
+                  disabled={convertLead.isPending}
+                  onClick={() => handleWonLead(lead)}
+                  className="w-full md:w-auto shadow-sm"
+                >
+                  <Calendar className="w-4 h-4 mr-2" />
+                  Create & Schedule Job
                 </Button>
               )}
 
@@ -545,7 +570,7 @@ export default function LeadDetailPage() {
           <CardHeader>
             <CardTitle>🎉 Sale Won</CardTitle>
             <CardDescription>
-              Convert this sale into a customer record before creating jobs.
+              Create the job and lock in the installation schedule.
             </CardDescription>
           </CardHeader>
 
@@ -567,16 +592,14 @@ export default function LeadDetailPage() {
                 className="flex-1"
                 size="lg"
                 disabled={convertLead.isPending || form.formState.isDirty}
-                onClick={() => handleConvertToCustomer(lead)}
+                onClick={() => handleWonLead(lead)}
               >
-                <UserRoundCheck className="mr-2 h-5 w-5" />
+                <Calendar className="mr-2 h-5 w-5" />
                 {convertLead.isPending
                   ? "Creating Customer..."
-                  : lead.customerId
-                    ? "View Customer"
-                    : form.formState.isDirty
-                      ? "Save Changes First"
-                      : "Create Customer Record"}
+                  : form.formState.isDirty
+                    ? "Save Changes First"
+                    : "Create & Schedule Job"}
               </Button>
             </div>
           </CardContent>
