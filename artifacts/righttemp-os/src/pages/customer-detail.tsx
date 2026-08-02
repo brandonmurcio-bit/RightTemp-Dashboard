@@ -1,4 +1,4 @@
-import React, { useEffect, useRef } from "react";
+import React, { useEffect, useRef, useState } from "react";
 import { useParams, useLocation } from "wouter";
 import {
   customerQueryKeys,
@@ -22,6 +22,8 @@ import {
   Wrench,
   ShieldAlert,
   FileText,
+  Download,
+  Upload,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -53,6 +55,13 @@ import {
   CardTitle,
   CardDescription,
 } from "@/components/ui/card";
+import {
+  customerDocumentQueryKeys,
+  useCustomerDocuments,
+  useDeleteCustomerDocument,
+  useUploadCustomerDocument,
+} from "@/features/customer-documents/customer-documents.hooks";
+import { openCustomerDocument } from "@/features/customer-documents/customer-documents.repository";
 
 const customerUpdateSchema = z.object({
   name: z.string().min(1, "Name is required"),
@@ -83,6 +92,10 @@ export default function CustomerDetailPage() {
   const { data: customer, isLoading, isError } = useCustomer(id);
   const updateCustomer = useUpdateCustomer();
   const deleteCustomer = useDeleteCustomer();
+  const { data: documents, isLoading: documentsLoading } = useCustomerDocuments(id);
+  const uploadDocument = useUploadCustomerDocument();
+  const deleteDocument = useDeleteCustomerDocument();
+  const [selectedFile, setSelectedFile] = useState<File | null>(null);
 
   const form = useForm<CustomerUpdateValues>({
     resolver: zodResolver(customerUpdateSchema),
@@ -166,6 +179,34 @@ export default function CustomerDetailPage() {
         });
       },
     });
+  };
+
+  const handleContractUpload = () => {
+    if (!selectedFile) return;
+    uploadDocument.mutate(
+      { customerId: id, file: selectedFile },
+      {
+        onSuccess: () => {
+          queryClient.invalidateQueries({ queryKey: customerDocumentQueryKeys.list(id) });
+          setSelectedFile(null);
+          toast({ title: "Contract uploaded", description: "The document is saved in this customer profile." });
+        },
+        onError: (error) => toast({ title: "Upload failed", description: error.message, variant: "destructive" }),
+      },
+    );
+  };
+
+  const handleOpenDocument = async (storagePath: string) => {
+    try {
+      const url = await openCustomerDocument(storagePath);
+      window.open(url, "_blank", "noopener,noreferrer");
+    } catch (error) {
+      toast({
+        title: "Unable to open document",
+        description: error instanceof Error ? error.message : "Download failed.",
+        variant: "destructive",
+      });
+    }
   };
 
   if (isLoading) {
@@ -348,6 +389,71 @@ export default function CustomerDetailPage() {
                 className="resize-none font-mono text-sm"
                 placeholder="Make/Model: Carrier XYZ&#10;Filter Size: 20x20x1&#10;Access: Side gate code 1234"
               />
+            </CardContent>
+          </Card>
+
+          <Card>
+            <CardHeader>
+              <CardTitle className="flex items-center gap-2">
+                <FileText className="w-5 h-5 text-primary" /> Contracts & Documents
+              </CardTitle>
+              <CardDescription>
+                Private contracts, proposals, warranties, and permits.
+              </CardDescription>
+            </CardHeader>
+            <CardContent className="space-y-4">
+              <div className="flex flex-col gap-3 sm:flex-row">
+                <Input
+                  type="file"
+                  accept=".pdf,.doc,.docx,image/jpeg,image/png,image/webp,image/heic,image/heif"
+                  onChange={(event) => setSelectedFile(event.target.files?.[0] ?? null)}
+                />
+                <Button type="button" onClick={handleContractUpload} disabled={!selectedFile || uploadDocument.isPending}>
+                  <Upload className="w-4 h-4 mr-2" />
+                  {uploadDocument.isPending ? "Uploading..." : "Upload"}
+                </Button>
+              </div>
+
+              {documentsLoading && <p className="text-sm text-muted-foreground">Loading documents...</p>}
+              {!documentsLoading && (documents ?? []).length === 0 && (
+                <p className="rounded-lg border border-dashed p-6 text-center text-sm text-muted-foreground">
+                  No contracts uploaded yet.
+                </p>
+              )}
+              <div className="space-y-2">
+                {(documents ?? []).map((document) => (
+                  <div key={document.id} className="flex items-center justify-between gap-3 rounded-lg border p-3">
+                    <div className="min-w-0">
+                      <p className="truncate text-sm font-medium">{document.fileName}</p>
+                      <p className="text-xs text-muted-foreground">
+                        {new Date(document.createdAt).toLocaleDateString()}
+                        {document.fileSize ? ` · ${(document.fileSize / 1024 / 1024).toFixed(1)} MB` : ""}
+                      </p>
+                    </div>
+                    <div className="flex gap-2">
+                      <Button type="button" size="sm" variant="outline" onClick={() => handleOpenDocument(document.storagePath)}>
+                        <Download className="w-4 h-4 mr-2" /> Open
+                      </Button>
+                      <Button
+                        type="button"
+                        size="sm"
+                        variant="outline"
+                        className="text-destructive"
+                        disabled={deleteDocument.isPending}
+                        onClick={() => {
+                          if (!window.confirm(`Delete ${document.fileName}?`)) return;
+                          deleteDocument.mutate(document, {
+                            onSuccess: () => queryClient.invalidateQueries({ queryKey: customerDocumentQueryKeys.list(id) }),
+                            onError: (error) => toast({ title: "Delete failed", description: error.message, variant: "destructive" }),
+                          });
+                        }}
+                      >
+                        <Trash2 className="w-4 h-4" />
+                      </Button>
+                    </div>
+                  </div>
+                ))}
+              </div>
             </CardContent>
           </Card>
         </div>
