@@ -67,6 +67,42 @@ export async function createEstimate(input: EstimateInput): Promise<Estimate> {
   return mapEstimate(data as unknown as EstimateRow);
 }
 
+export async function updateEstimate(id: string, input: EstimateInput): Promise<Estimate> {
+  const organizationId = await getCurrentOrganizationId();
+  const subtotal = input.lineItems.reduce((sum, item) => sum + item.total, 0);
+  const taxAmount = subtotal * input.taxRate;
+  const { data, error } = await supabase
+    .from("estimates")
+    .update({
+      customer_id: input.customerId || null,
+      lead_id: input.leadId || null,
+      title: input.title,
+      line_items: input.lineItems,
+      subtotal,
+      tax_rate: input.taxRate,
+      tax_amount: taxAmount,
+      total: subtotal + taxAmount,
+      valid_until: input.validUntil || null,
+      notes: input.notes || null,
+    })
+    .eq("id", id)
+    .eq("organization_id", organizationId)
+    .select(estimateSelect)
+    .single();
+  if (error) throw new Error(`Unable to update estimate: ${error.message}`);
+  return mapEstimate(data as unknown as EstimateRow);
+}
+
+export async function deleteEstimate(id: string): Promise<void> {
+  const organizationId = await getCurrentOrganizationId();
+  const { error } = await supabase
+    .from("estimates")
+    .delete()
+    .eq("id", id)
+    .eq("organization_id", organizationId);
+  if (error) throw new Error(`Unable to delete estimate: ${error.message}`);
+}
+
 export async function updateEstimateStatus(id: string, status: EstimateStatus): Promise<void> {
   const organizationId = await getCurrentOrganizationId();
   const timestamps = {

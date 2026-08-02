@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import { useQueryClient } from "@tanstack/react-query";
-import { CheckCircle2, FileText, Plus, Send } from "lucide-react";
+import { CheckCircle2, FileText, Pencil, Plus, Send, Trash2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
@@ -13,10 +13,12 @@ import { useLeads } from "@/features/leads/leads.hooks";
 import {
   estimateQueryKeys,
   useCreateEstimate,
+  useDeleteEstimate,
   useEstimates,
+  useUpdateEstimate,
   useUpdateEstimateStatus,
 } from "@/features/estimates/estimates.hooks";
-import type { EstimateStatus } from "@/features/estimates/estimates.types";
+import type { Estimate, EstimateInput, EstimateStatus } from "@/features/estimates/estimates.types";
 import { useToast } from "@/hooks/use-toast";
 
 const money = new Intl.NumberFormat("en-US", { style: "currency", currency: "USD" });
@@ -36,8 +38,11 @@ export default function EstimatesPage() {
   const { data: customers } = useCustomers();
   const { data: leads } = useLeads();
   const createEstimate = useCreateEstimate();
+  const editEstimate = useUpdateEstimate();
+  const deleteEstimate = useDeleteEstimate();
   const updateStatus = useUpdateEstimateStatus();
   const [open, setOpen] = useState(false);
+  const [editingId, setEditingId] = useState<string | null>(null);
   const [customerId, setCustomerId] = useState("");
   const [leadId, setLeadId] = useState("");
   const [title, setTitle] = useState("HVAC System Proposal");
@@ -82,13 +87,40 @@ export default function EstimatesPage() {
   );
   const total = subtotal * (1 + (Number(taxPercent) || 0) / 100);
 
+  const resetForm = () => {
+    setEditingId(null);
+    setCustomerId("");
+    setLeadId("");
+    setTitle("HVAC System Proposal");
+    setDescription("");
+    setQuantity("1");
+    setUnitPrice("");
+    setTaxPercent("0");
+    setValidUntil("");
+    setNotes("");
+  };
+
+  const beginEdit = (estimate: Estimate) => {
+    const firstItem = estimate.lineItems[0];
+    setEditingId(estimate.id);
+    setCustomerId(estimate.customerId ?? "");
+    setLeadId(estimate.leadId ?? "");
+    setTitle(estimate.title);
+    setDescription(firstItem?.description ?? "");
+    setQuantity(String(firstItem?.quantity ?? 1));
+    setUnitPrice(String(firstItem?.unit_price ?? 0));
+    setTaxPercent(String(estimate.taxRate * 100));
+    setValidUntil(estimate.validUntil ?? "");
+    setNotes(estimate.notes ?? "");
+    setOpen(true);
+  };
+
   const submit = () => {
     if ((!customerId && !leadId) || !title.trim() || !description.trim() || subtotal <= 0) {
       toast({ title: "Missing estimate details", description: "Choose a lead or customer and enter a priced line item.", variant: "destructive" });
       return;
     }
-    createEstimate.mutate(
-      {
+    const input: EstimateInput = {
         customerId: customerId || undefined,
         leadId: leadId || undefined,
         title: title.trim(),
@@ -101,19 +133,32 @@ export default function EstimatesPage() {
         taxRate: (Number(taxPercent) || 0) / 100,
         validUntil,
         notes,
-      },
-      {
+    };
+    const callbacks = {
         onSuccess: () => {
           queryClient.invalidateQueries({ queryKey: estimateQueryKeys.all });
           setOpen(false);
-          setDescription("");
-          setUnitPrice("");
-          setNotes("");
-          toast({ title: "Estimate created", description: "The proposal was saved as a draft." });
+          resetForm();
+          toast({ title: editingId ? "Estimate updated" : "Estimate created", description: editingId ? "Your changes were saved." : "The proposal was saved as a draft." });
         },
-        onError: (error) => toast({ title: "Estimate failed", description: error.message, variant: "destructive" }),
+        onError: (error: Error) => toast({ title: "Estimate failed", description: error.message, variant: "destructive" }),
+    };
+    if (editingId) {
+      editEstimate.mutate({ id: editingId, input }, callbacks);
+    } else {
+      createEstimate.mutate(input, callbacks);
+    }
+  };
+
+  const removeEstimate = (estimate: Estimate) => {
+    if (!window.confirm(`Delete ${estimate.title}? This cannot be undone.`)) return;
+    deleteEstimate.mutate(estimate.id, {
+      onSuccess: () => {
+        queryClient.invalidateQueries({ queryKey: estimateQueryKeys.all });
+        toast({ title: "Estimate deleted", description: "The estimate was permanently removed." });
       },
-    );
+      onError: (error) => toast({ title: "Delete failed", description: error.message, variant: "destructive" }),
+    });
   };
 
   const changeStatus = (id: string, status: EstimateStatus) => {
@@ -130,10 +175,10 @@ export default function EstimatesPage() {
           <h1 className="text-3xl font-bold tracking-tight">Estimates</h1>
           <p className="text-muted-foreground mt-2">Build and track customer proposals.</p>
         </div>
-        <Dialog open={open} onOpenChange={setOpen}>
-          <DialogTrigger asChild><Button><Plus className="h-4 w-4 mr-2" />New Estimate</Button></DialogTrigger>
+        <Dialog open={open} onOpenChange={(nextOpen) => { setOpen(nextOpen); if (!nextOpen) resetForm(); }}>
+          <DialogTrigger asChild><Button onClick={resetForm}><Plus className="h-4 w-4 mr-2" />New Estimate</Button></DialogTrigger>
           <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto">
-            <DialogHeader><DialogTitle>Create Estimate</DialogTitle></DialogHeader>
+            <DialogHeader><DialogTitle>{editingId ? "Edit Estimate" : "Create Estimate"}</DialogTitle></DialogHeader>
             <div className="space-y-5">
               <div className="space-y-2"><Label>Customer</Label><Select value={customerId} onValueChange={(value) => { setCustomerId(value); setLeadId(""); }}><SelectTrigger><SelectValue placeholder="Select customer" /></SelectTrigger><SelectContent>{(customers ?? []).map((customer) => <SelectItem key={customer.id} value={customer.id}>{customer.name}</SelectItem>)}</SelectContent></Select></div>
               <div className="space-y-2"><Label>Or open lead</Label><Select value={leadId} onValueChange={(value) => { setLeadId(value); setCustomerId(""); }}><SelectTrigger><SelectValue placeholder="Select lead" /></SelectTrigger><SelectContent>{(leads ?? []).filter((lead) => lead.status !== "lost" && lead.status !== "won").map((lead) => <SelectItem key={lead.id} value={lead.id}>{lead.name}</SelectItem>)}</SelectContent></Select></div>
@@ -147,7 +192,7 @@ export default function EstimatesPage() {
               <div className="rounded-lg border p-4 flex justify-between"><span className="text-muted-foreground">Estimate total</span><strong className="text-xl">{money.format(total)}</strong></div>
               <div className="space-y-2"><Label>Valid until</Label><Input type="date" value={validUntil} onChange={(e) => setValidUntil(e.target.value)} /></div>
               <div className="space-y-2"><Label>Customer notes</Label><Textarea value={notes} onChange={(e) => setNotes(e.target.value)} placeholder="Warranty, payment schedule, exclusions..." /></div>
-              <Button className="w-full" onClick={submit} disabled={createEstimate.isPending}>{createEstimate.isPending ? "Saving..." : "Save Draft Estimate"}</Button>
+              <Button className="w-full" onClick={submit} disabled={createEstimate.isPending || editEstimate.isPending}>{createEstimate.isPending || editEstimate.isPending ? "Saving..." : editingId ? "Save Changes" : "Save Draft Estimate"}</Button>
             </div>
           </DialogContent>
         </Dialog>
@@ -169,6 +214,8 @@ export default function EstimatesPage() {
                 {estimate.status === "draft" && <Button size="sm" variant="outline" onClick={() => changeStatus(estimate.id, "sent")}><Send className="h-4 w-4 mr-2" />Mark Sent</Button>}
                 {estimate.status === "sent" && <Button size="sm" onClick={() => changeStatus(estimate.id, "approved")}><CheckCircle2 className="h-4 w-4 mr-2" />Approve</Button>}
                 {estimate.status === "sent" && <Button size="sm" variant="outline" onClick={() => changeStatus(estimate.id, "rejected")}>Reject</Button>}
+                <Button size="sm" variant="outline" onClick={() => beginEdit(estimate)}><Pencil className="h-4 w-4 mr-2" />Edit</Button>
+                <Button size="sm" variant="outline" className="text-destructive" disabled={deleteEstimate.isPending} onClick={() => removeEstimate(estimate)}><Trash2 className="h-4 w-4" /></Button>
               </div>
             </CardContent>
           </Card>
