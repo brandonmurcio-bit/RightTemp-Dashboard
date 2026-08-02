@@ -9,6 +9,7 @@ import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Textarea } from "@/components/ui/textarea";
 import { useCustomers } from "@/features/customers/customers.hooks";
+import { useLeads } from "@/features/leads/leads.hooks";
 import {
   estimateQueryKeys,
   useCreateEstimate,
@@ -23,6 +24,7 @@ const statusColors: Record<EstimateStatus, string> = {
   draft: "bg-muted text-muted-foreground",
   sent: "bg-blue-500/10 text-blue-400",
   approved: "bg-emerald-500/10 text-emerald-400",
+  won: "bg-emerald-500/10 text-emerald-400",
   rejected: "bg-red-500/10 text-red-400",
   expired: "bg-amber-500/10 text-amber-400",
 };
@@ -32,10 +34,12 @@ export default function EstimatesPage() {
   const { toast } = useToast();
   const { data: estimates, isLoading, isError } = useEstimates();
   const { data: customers } = useCustomers();
+  const { data: leads } = useLeads();
   const createEstimate = useCreateEstimate();
   const updateStatus = useUpdateEstimateStatus();
   const [open, setOpen] = useState(false);
   const [customerId, setCustomerId] = useState("");
+  const [leadId, setLeadId] = useState("");
   const [title, setTitle] = useState("HVAC System Proposal");
   const [description, setDescription] = useState("");
   const [quantity, setQuantity] = useState("1");
@@ -46,11 +50,31 @@ export default function EstimatesPage() {
 
   useEffect(() => {
     const requestedCustomerId = new URLSearchParams(window.location.search).get("customerId");
+    const requestedLeadId = new URLSearchParams(window.location.search).get("leadId");
     if (requestedCustomerId) {
       setCustomerId(requestedCustomerId);
       setOpen(true);
     }
+    if (requestedLeadId) {
+      setLeadId(requestedLeadId);
+      setOpen(true);
+    }
   }, []);
+
+  useEffect(() => {
+    const selectedLead = (leads ?? []).find((lead) => lead.id === leadId);
+    if (!selectedLead) return;
+    if (!description) {
+      setDescription(
+        [selectedLead.equipment, selectedLead.scopeOfWork]
+          .filter(Boolean)
+          .join(" — "),
+      );
+    }
+    if (!unitPrice && selectedLead.estimatePrice) {
+      setUnitPrice(String(selectedLead.estimatePrice));
+    }
+  }, [description, leadId, leads, unitPrice]);
 
   const subtotal = useMemo(
     () => (Number(quantity) || 0) * (Number(unitPrice) || 0),
@@ -59,13 +83,14 @@ export default function EstimatesPage() {
   const total = subtotal * (1 + (Number(taxPercent) || 0) / 100);
 
   const submit = () => {
-    if (!customerId || !title.trim() || !description.trim() || subtotal <= 0) {
-      toast({ title: "Missing estimate details", description: "Choose a customer and enter a priced line item.", variant: "destructive" });
+    if ((!customerId && !leadId) || !title.trim() || !description.trim() || subtotal <= 0) {
+      toast({ title: "Missing estimate details", description: "Choose a lead or customer and enter a priced line item.", variant: "destructive" });
       return;
     }
     createEstimate.mutate(
       {
-        customerId,
+        customerId: customerId || undefined,
+        leadId: leadId || undefined,
         title: title.trim(),
         lineItems: [{
           description: description.trim(),
@@ -110,7 +135,8 @@ export default function EstimatesPage() {
           <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto">
             <DialogHeader><DialogTitle>Create Estimate</DialogTitle></DialogHeader>
             <div className="space-y-5">
-              <div className="space-y-2"><Label>Customer</Label><Select value={customerId} onValueChange={setCustomerId}><SelectTrigger><SelectValue placeholder="Select customer" /></SelectTrigger><SelectContent>{(customers ?? []).map((customer) => <SelectItem key={customer.id} value={customer.id}>{customer.name}</SelectItem>)}</SelectContent></Select></div>
+              <div className="space-y-2"><Label>Customer</Label><Select value={customerId} onValueChange={(value) => { setCustomerId(value); setLeadId(""); }}><SelectTrigger><SelectValue placeholder="Select customer" /></SelectTrigger><SelectContent>{(customers ?? []).map((customer) => <SelectItem key={customer.id} value={customer.id}>{customer.name}</SelectItem>)}</SelectContent></Select></div>
+              <div className="space-y-2"><Label>Or open lead</Label><Select value={leadId} onValueChange={(value) => { setLeadId(value); setCustomerId(""); }}><SelectTrigger><SelectValue placeholder="Select lead" /></SelectTrigger><SelectContent>{(leads ?? []).filter((lead) => lead.status !== "lost" && lead.status !== "won").map((lead) => <SelectItem key={lead.id} value={lead.id}>{lead.name}</SelectItem>)}</SelectContent></Select></div>
               <div className="space-y-2"><Label>Proposal title</Label><Input value={title} onChange={(e) => setTitle(e.target.value)} /></div>
               <div className="space-y-2"><Label>Line item</Label><Input placeholder="3-ton Daikin FIT system with installation" value={description} onChange={(e) => setDescription(e.target.value)} /></div>
               <div className="grid grid-cols-3 gap-3">

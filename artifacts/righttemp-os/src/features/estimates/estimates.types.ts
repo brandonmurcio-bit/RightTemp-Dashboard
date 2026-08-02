@@ -1,4 +1,4 @@
-export type EstimateStatus = "draft" | "sent" | "approved" | "rejected" | "expired";
+export type EstimateStatus = "draft" | "sent" | "approved" | "won" | "rejected" | "expired";
 
 export interface EstimateLineItem {
   description: string;
@@ -9,7 +9,8 @@ export interface EstimateLineItem {
 
 export interface Estimate {
   id: string;
-  customerId: string;
+  customerId: string | null;
+  leadId: string | null;
   customerName: string;
   estimateNumber: string | null;
   title: string;
@@ -25,7 +26,8 @@ export interface Estimate {
 }
 
 export interface EstimateInput {
-  customerId: string;
+  customerId?: string;
+  leadId?: string;
   title: string;
   lineItems: EstimateLineItem[];
   taxRate: number;
@@ -35,7 +37,8 @@ export interface EstimateInput {
 
 export interface EstimateRow {
   id: string;
-  customer_id: string;
+  customer_id: string | null;
+  lead_id: string | null;
   estimate_number: string | null;
   title: string;
   line_items: EstimateLineItem[];
@@ -48,4 +51,5 @@ export interface EstimateRow {
   notes: string | null;
   created_at: string;
   customers: { name: string } | { name: string }[] | null;
+  leads: { name: string } | { name: string }[] | null;
 }

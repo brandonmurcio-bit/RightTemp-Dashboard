@@ -11,6 +11,7 @@ import {
   Save,
   Trash2,
   UserRoundCheck,
+  FileText,
 } from "lucide-react";
 
 import {
@@ -22,6 +23,7 @@ import {
   useUpdateLead,
 } from "@/features/leads/leads.hooks";
 import { customerQueryKeys } from "@/features/customers/customers.hooks";
+import { estimateQueryKeys } from "@/features/estimates/estimates.hooks";
 import type { Lead, LeadInput, LeadStatus } from "@/features/leads/leads.types";
 import { useToast } from "@/hooks/use-toast";
 
@@ -214,6 +216,7 @@ export default function LeadDetailPage() {
         queryClient.invalidateQueries({
           queryKey: dashboardQueryKeys.stats,
         });
+        queryClient.invalidateQueries({ queryKey: estimateQueryKeys.all });
 
         toast({
           title: "Lead deleted",
@@ -428,7 +431,11 @@ export default function LeadDetailPage() {
                 <Button
                   size="sm"
                   disabled={updateLead.isPending}
-                  onClick={() => advanceStatus(nextStage)}
+                  onClick={() =>
+                    nextStage === "won"
+                      ? handleConvertToCustomer(lead)
+                      : advanceStatus(nextStage)
+                  }
                   className="w-full md:w-auto shadow-sm"
                 >
                   Advance to {nextStage}
@@ -462,6 +469,13 @@ export default function LeadDetailPage() {
           </CardHeader>
 
           <CardContent className="space-y-4">
+            <Button
+              type="button"
+              variant="outline"
+              onClick={() => setLocation(`/estimates?leadId=${lead.id}`)}
+            >
+              <FileText className="w-4 h-4 mr-2" /> Build Full Estimate
+            </Button>
             <div className="space-y-2">
               <Label>Estimate Price</Label>
               <Input

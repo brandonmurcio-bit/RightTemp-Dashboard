@@ -3,17 +3,19 @@ import { supabase } from "@/lib/supabase";
 import type { Estimate, EstimateInput, EstimateRow, EstimateStatus } from "./estimates.types";
 
 const estimateSelect = `
-  id, customer_id, estimate_number, title, line_items, subtotal, tax_rate,
+  id, customer_id, lead_id, estimate_number, title, line_items, subtotal, tax_rate,
   tax_amount, total, status, valid_until, notes, created_at,
-  customers!estimates_customer_id_fkey(name)
+  customers!estimates_customer_id_fkey(name), leads!estimates_lead_id_fkey(name)
 `;
 
 function mapEstimate(row: EstimateRow): Estimate {
   const customer = Array.isArray(row.customers) ? row.customers[0] : row.customers;
+  const lead = Array.isArray(row.leads) ? row.leads[0] : row.leads;
   return {
     id: row.id,
     customerId: row.customer_id,
-    customerName: customer?.name ?? "Unknown customer",
+    leadId: row.lead_id,
+    customerName: customer?.name ?? lead?.name ?? "Unknown contact",
     estimateNumber: row.estimate_number,
     title: row.title,
     lineItems: row.line_items ?? [],
@@ -47,7 +49,8 @@ export async function createEstimate(input: EstimateInput): Promise<Estimate> {
     .from("estimates")
     .insert({
       organization_id: organizationId,
-      customer_id: input.customerId,
+      customer_id: input.customerId || null,
+      lead_id: input.leadId || null,
       title: input.title,
       line_items: input.lineItems,
       subtotal,
