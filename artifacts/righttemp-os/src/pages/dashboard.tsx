@@ -396,8 +396,8 @@ export default function DashboardPage() {
             <div className="flex items-start justify-between">
               <div>
                 <p className="text-sm text-muted-foreground">Monthly Revenue</p>
-                <p className={`text-2xl font-bold mt-2 ${stats.monthlyProfit >= 0 ? "text-emerald-400" : "text-red-400"}`}>
-                  {money.format(stats.monthlyProfit)}
+                <p className="text-2xl font-bold mt-2 text-emerald-400">
+                  {money.format(stats.monthlyCollected)}
                 </p>
               </div>
 
@@ -407,7 +407,7 @@ export default function DashboardPage() {
             </div>
 
             <p className="text-xs text-muted-foreground mt-4">
-              Connect estimates and invoices
+              Payments collected this month
             </p>
           </CardContent>
         </Card>
@@ -417,7 +417,9 @@ export default function DashboardPage() {
             <div className="flex items-start justify-between">
               <div>
                 <p className="text-sm text-muted-foreground">Monthly Profit</p>
-                <p className="text-2xl font-bold mt-2">$—</p>
+                <p className={`text-2xl font-bold mt-2 ${stats.monthlyProfit >= 0 ? "text-emerald-400" : "text-red-400"}`}>
+                  {money.format(stats.monthlyProfit)}
+                </p>
               </div>
 
               <div className="rounded-xl bg-red-500/10 p-2.5">

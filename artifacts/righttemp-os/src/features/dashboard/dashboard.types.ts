@@ -13,6 +13,7 @@ export interface DashboardStats {
   scheduledJobs: number;
   jobsToday: number;
   monthlyRevenue: number;
+  monthlyCollected: number;
   monthlyCost: number;
   monthlyProfit: number;
   monthlyMarginPercent: number | null;

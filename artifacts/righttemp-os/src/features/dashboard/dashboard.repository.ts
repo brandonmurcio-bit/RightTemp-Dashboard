@@ -19,7 +19,10 @@ export async function getDashboardStats(): Promise<DashboardStats> {
   const startOfTomorrow = new Date(startOfToday);
   startOfTomorrow.setDate(startOfTomorrow.getDate() + 1);
 
-  const [leadStatusesResult, recentLeadsResult, customersResult, jobsResult, estimatesResult, costsResult] =
+  const startOfMonth = new Date(startOfToday.getFullYear(), startOfToday.getMonth(), 1);
+  const monthDate = `${startOfMonth.getFullYear()}-${String(startOfMonth.getMonth() + 1).padStart(2, "0")}-01`;
+
+  const [leadStatusesResult, recentLeadsResult, customersResult, jobsResult, estimatesResult, costsResult, collectedResult] =
     await Promise.all([
       supabase
         .from("leads")
@@ -48,6 +51,11 @@ export async function getDashboardStats(): Promise<DashboardStats> {
         .from("job_costs")
         .select("job_id, total_cost")
         .eq("organization_id", organizationId),
+      supabase
+        .from("payment_transactions")
+        .select("amount")
+        .eq("organization_id", organizationId)
+        .gte("payment_date", monthDate),
     ]);
 
   const firstError = [
@@ -57,6 +65,7 @@ export async function getDashboardStats(): Promise<DashboardStats> {
     jobsResult.error,
     estimatesResult.error,
     costsResult.error,
+    collectedResult.error,
   ].find(Boolean);
 
   if (firstError) {
@@ -77,7 +86,6 @@ export async function getDashboardStats(): Promise<DashboardStats> {
   const jobs = jobsResult.data ?? [];
   const todayStartMs = startOfToday.getTime();
   const tomorrowStartMs = startOfTomorrow.getTime();
-  const startOfMonth = new Date(startOfToday.getFullYear(), startOfToday.getMonth(), 1);
   const completedThisMonth = new Set(
     jobs
       .filter((row) => row.status === "completed" && row.completed_at && new Date(row.completed_at) >= startOfMonth)
@@ -94,6 +102,10 @@ export async function getDashboardStats(): Promise<DashboardStats> {
     .reduce((sum, row) => sum + Number(row.total_cost), 0);
   const monthlyCost = monthlyPoCost + monthlyManualCost;
   const monthlyProfit = monthlyRevenue - monthlyCost;
+  const monthlyCollected = (collectedResult.data ?? []).reduce(
+    (sum, row) => sum + Number(row.amount),
+    0,
+  );
 
   return {
     totalLeads: leadStatusesResult.data?.length ?? 0,
@@ -106,6 +118,7 @@ export async function getDashboardStats(): Promise<DashboardStats> {
       return scheduledTime >= todayStartMs && scheduledTime < tomorrowStartMs;
     }).length,
     monthlyRevenue,
+    monthlyCollected,
     monthlyCost,
     monthlyProfit,
     monthlyMarginPercent:
