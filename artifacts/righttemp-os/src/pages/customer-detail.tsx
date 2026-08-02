@@ -21,6 +21,7 @@ import {
   Building,
   Wrench,
   ShieldAlert,
+  FileText,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -214,6 +215,13 @@ export default function CustomerDetailPage() {
           </div>
         </div>
         <div className="flex items-center gap-2">
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={() => setLocation(`/estimates?customerId=${customer.id}`)}
+          >
+            <FileText className="w-4 h-4 mr-2" /> Create Estimate
+          </Button>
           <Button
             variant="outline"
             size="sm"

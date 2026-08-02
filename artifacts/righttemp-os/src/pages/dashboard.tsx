@@ -180,22 +180,21 @@ export default function DashboardPage() {
                   </div>
                 </Link>
 
-                <button
-                  type="button"
-                  disabled
-                  className="flex items-center gap-3 rounded-2xl border border-white/10 bg-white/[0.025] p-4 text-left opacity-55 cursor-not-allowed"
+                <Link
+                  href="/estimates"
+                  className="group flex items-center gap-3 rounded-2xl border border-amber-500/20 bg-amber-500/[0.06] p-4 hover:bg-amber-500/[0.12] hover:border-amber-500/35 transition-all"
                 >
-                  <div className="rounded-xl bg-white/5 p-2.5">
-                    <FileText className="w-5 h-5 text-muted-foreground" />
+                  <div className="rounded-xl bg-amber-500/15 p-2.5">
+                    <FileText className="w-5 h-5 text-amber-400" />
                   </div>
 
                   <div className="min-w-0">
                     <p className="text-sm font-semibold">Create Estimate</p>
                     <p className="text-[11px] text-muted-foreground mt-0.5">
-                      Coming soon
+                      Open estimates
                     </p>
                   </div>
-                </button>
+                </Link>
 
                 <Link
                   href="/jobs/new"

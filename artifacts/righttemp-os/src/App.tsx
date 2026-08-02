@@ -25,6 +25,7 @@ import CustomerDetailPage from "@/pages/customer-detail";
 import JobsPage from "@/pages/jobs";
 import JobDetailPage from "@/pages/job-detail";
 import NewJobPage from "@/pages/new-job";
+import EstimatesPage from "@/pages/estimates";
 const queryClient = new QueryClient();
 
 function AuthenticatedRouter() {
@@ -43,6 +44,8 @@ function AuthenticatedRouter() {
         <Route path="/jobs" component={JobsPage} />
         <Route path="/jobs/new" component={NewJobPage} />
         <Route path="/jobs/:id" component={JobDetailPage} />
+
+        <Route path="/estimates" component={EstimatesPage} />
 
         <Route component={NotFound} />
       </Switch>

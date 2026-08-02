@@ -1,6 +1,6 @@
 import React from "react";
 import { Link, useLocation } from "wouter";
-import { Activity, Users, LayoutDashboard, CalendarDays, LogOut } from "lucide-react";
+import { Activity, Users, LayoutDashboard, CalendarDays, FileText, LogOut } from "lucide-react";
 import { supabase } from "@/lib/supabase";
 import { PWAPrompt } from "./pwa-prompt";
 
@@ -17,6 +17,7 @@ export function Layout({ children }: { children: React.ReactNode }) {
     { label: "Leads", path: "/leads", icon: Activity },
     { label: "Customers", path: "/customers", icon: Users },
     { label: "Jobs", path: "/jobs", icon: CalendarDays },
+    { label: "Estimates", path: "/estimates", icon: FileText },
   ];
 
   return (
