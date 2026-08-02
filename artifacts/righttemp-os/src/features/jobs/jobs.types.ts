@@ -54,3 +54,15 @@ export interface JobInput {
   assignedTo?: string;
   notes?: string;
 }
+
+export interface JobUpdateInput {
+  title: string;
+  description?: string;
+  serviceType?: string;
+  status: JobStatus;
+  priority: JobPriority;
+  scheduledStart?: string;
+  scheduledEnd?: string;
+  assignedTo?: string;
+  notes?: string;
+}

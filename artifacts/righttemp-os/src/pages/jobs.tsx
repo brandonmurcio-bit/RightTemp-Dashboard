@@ -1,4 +1,4 @@
-import { CalendarDays, ClipboardList, Plus, UserRound } from "lucide-react";
+import { CalendarDays, ClipboardList, Pencil, Plus, UserRound } from "lucide-react";
 import { Link } from "wouter";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
@@ -80,6 +80,9 @@ export default function JobsPage() {
                       {job.assignedTo || "Crew not assigned"}
                     </p>
                   </div>
+                  <p className="flex items-center gap-2 border-t pt-3 text-xs text-primary">
+                    <Pencil className="h-3.5 w-3.5" /> Tap to view or edit job
+                  </p>
                 </CardContent>
               </Card>
             </Link>

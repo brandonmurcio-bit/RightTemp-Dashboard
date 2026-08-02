@@ -1,6 +1,6 @@
 import { useMutation, useQuery } from "@tanstack/react-query";
-import { createJob, getJob, getJobs } from "./jobs.repository";
-import type { JobInput } from "./jobs.types";
+import { createJob, getJob, getJobs, updateJob } from "./jobs.repository";
+import type { JobInput, JobUpdateInput } from "./jobs.types";
 
 export const jobQueryKeys = {
   all: ["jobs"] as const,
@@ -22,4 +22,11 @@ export function useJob(id: string) {
 
 export function useCreateJob() {
   return useMutation({ mutationFn: (input: JobInput) => createJob(input) });
+}
+
+export function useUpdateJob() {
+  return useMutation({
+    mutationFn: ({ id, input }: { id: string; input: JobUpdateInput }) =>
+      updateJob(id, input),
+  });
 }

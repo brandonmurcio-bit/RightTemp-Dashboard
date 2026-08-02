@@ -1,7 +1,7 @@
 import { getCurrentOrganizationId } from "@/lib/get-current-organization-id";
 import { supabase } from "@/lib/supabase";
 import { mapJobRowToJob } from "./jobs.mappers";
-import type { Job, JobInput, JobRow } from "./jobs.types";
+import type { Job, JobInput, JobRow, JobUpdateInput } from "./jobs.types";
 
 const jobSelect = `
   id, organization_id, lead_id, customer_id, title, description,
@@ -54,5 +54,30 @@ export async function createJob(input: JobInput): Promise<Job> {
     .select(jobSelect)
     .single();
   if (error) throw new Error(`Unable to create job: ${error.message}`);
+  return mapJobRowToJob(data as JobRow);
+}
+
+export async function updateJob(id: string, input: JobUpdateInput): Promise<Job> {
+  const organizationId = await getCurrentOrganizationId();
+  const { data, error } = await supabase
+    .from("jobs")
+    .update({
+      title: input.title,
+      description: input.description || null,
+      service_type: input.serviceType || null,
+      status: input.status,
+      priority: input.priority,
+      scheduled_start: input.scheduledStart || null,
+      scheduled_end: input.scheduledEnd || null,
+      assigned_to: input.assignedTo || null,
+      notes: input.notes || null,
+      completed_at:
+        input.status === "completed" ? new Date().toISOString() : null,
+    })
+    .eq("id", id)
+    .eq("organization_id", organizationId)
+    .select(jobSelect)
+    .single();
+  if (error) throw new Error(`Unable to update job: ${error.message}`);
   return mapJobRowToJob(data as JobRow);
 }
