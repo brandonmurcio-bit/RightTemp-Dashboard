@@ -1,5 +1,5 @@
 import React from "react";
-import { useGetDashboardStats } from "@workspace/api-client-react";
+import { useDashboardStats } from "@/features/dashboard/dashboard.hooks";
 import {
   Card,
   CardContent,
@@ -38,7 +38,7 @@ import {
 } from "recharts";
 
 export default function DashboardPage() {
-  const { data: stats, isLoading } = useGetDashboardStats();
+  const { data: stats, isLoading, isError } = useDashboardStats();
 
   if (isLoading) {
     return (
@@ -59,8 +59,12 @@ export default function DashboardPage() {
     );
   }
 
-  if (!stats) {
-    return null;
+  if (isError || !stats) {
+    return (
+      <div className="p-8 text-destructive">
+        Unable to load dashboard statistics.
+      </div>
+    );
   }
 
   const totalLeads = stats.totalLeads ?? 0;
@@ -193,22 +197,21 @@ export default function DashboardPage() {
                   </div>
                 </button>
 
-                <button
-                  type="button"
-                  disabled
-                  className="flex items-center gap-3 rounded-2xl border border-white/10 bg-white/[0.025] p-4 text-left opacity-55 cursor-not-allowed"
+                <Link
+                  href="/jobs/new"
+                  className="group flex items-center gap-3 rounded-2xl border border-violet-500/20 bg-violet-500/[0.06] p-4 hover:bg-violet-500/[0.12] hover:border-violet-500/35 transition-all"
                 >
-                  <div className="rounded-xl bg-white/5 p-2.5">
-                    <CalendarDays className="w-5 h-5 text-muted-foreground" />
+                  <div className="rounded-xl bg-violet-500/15 p-2.5">
+                    <CalendarDays className="w-5 h-5 text-violet-400" />
                   </div>
 
                   <div className="min-w-0">
                     <p className="text-sm font-semibold">Schedule Job</p>
                     <p className="text-[11px] text-muted-foreground mt-0.5">
-                      Coming soon
+                      Open scheduler
                     </p>
                   </div>
-                </button>
+                </Link>
               </div>
             </div>
           </div>
@@ -259,9 +262,11 @@ export default function DashboardPage() {
                   <CalendarDays className="w-4 h-4 text-violet-400" />
                 </div>
 
-                <p className="text-2xl font-bold font-mono mt-3">—</p>
+                <p className="text-2xl font-bold font-mono mt-3">
+                  {stats.jobsToday}
+                </p>
                 <p className="text-[11px] text-muted-foreground mt-1">
-                  Scheduling coming soon
+                  Scheduled for today
                 </p>
               </div>
 
@@ -386,9 +391,7 @@ export default function DashboardPage() {
           <CardContent className="p-5">
             <div className="flex items-start justify-between">
               <div>
-                <p className="text-sm text-muted-foreground">
-                  Monthly Revenue
-                </p>
+                <p className="text-sm text-muted-foreground">Monthly Revenue</p>
                 <p className="text-2xl font-bold mt-2">$—</p>
               </div>
 
@@ -407,9 +410,7 @@ export default function DashboardPage() {
           <CardContent className="p-5">
             <div className="flex items-start justify-between">
               <div>
-                <p className="text-sm text-muted-foreground">
-                  Monthly Profit
-                </p>
+                <p className="text-sm text-muted-foreground">Monthly Profit</p>
                 <p className="text-2xl font-bold mt-2">$—</p>
               </div>
 
@@ -428,10 +429,8 @@ export default function DashboardPage() {
           <CardContent className="p-5">
             <div className="flex items-start justify-between">
               <div>
-                <p className="text-sm text-muted-foreground">
-                  Scheduled Jobs
-                </p>
-                <p className="text-2xl font-bold mt-2">—</p>
+                <p className="text-sm text-muted-foreground">Scheduled Jobs</p>
+                <p className="text-2xl font-bold mt-2">{stats.scheduledJobs}</p>
               </div>
 
               <div className="rounded-xl bg-violet-500/10 p-2.5">
@@ -440,7 +439,7 @@ export default function DashboardPage() {
             </div>
 
             <p className="text-xs text-muted-foreground mt-4">
-              Scheduling module coming next
+              Jobs currently scheduled
             </p>
           </CardContent>
         </Card>
@@ -449,9 +448,7 @@ export default function DashboardPage() {
           <CardContent className="p-5">
             <div className="flex items-start justify-between">
               <div>
-                <p className="text-sm text-muted-foreground">
-                  Total Customers
-                </p>
+                <p className="text-sm text-muted-foreground">Total Customers</p>
                 <p className="text-2xl font-bold mt-2">
                   {stats.totalCustomers}
                 </p>
@@ -537,10 +534,7 @@ export default function DashboardPage() {
 
                 <Bar dataKey="value" radius={[10, 10, 2, 2]}>
                   {chartData.map((entry, index) => (
-                    <Cell
-                      key={`pipeline-cell-${index}`}
-                      fill={entry.color}
-                    />
+                    <Cell key={`pipeline-cell-${index}`} fill={entry.color} />
                   ))}
                 </Bar>
               </BarChart>
@@ -641,9 +635,7 @@ export default function DashboardPage() {
             </div>
 
             <div>
-              <p className="text-sm text-muted-foreground">
-                Proposals Pending
-              </p>
+              <p className="text-sm text-muted-foreground">Proposals Pending</p>
               <p className="text-2xl font-bold mt-1">{proposalLeads}</p>
             </div>
           </CardContent>
