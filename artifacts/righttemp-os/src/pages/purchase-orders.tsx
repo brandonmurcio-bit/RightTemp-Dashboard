@@ -22,7 +22,6 @@ function PurchaseOrderCard({ order }: { order: PurchaseOrder }) {
 
   const save = () => updateOrder.mutate(
     {
-      entityType: order.entityType,
       id: order.id,
       input: { status, vendor, amount: amount ? Number(amount) : undefined, notes },
     },
@@ -42,7 +41,7 @@ function PurchaseOrderCard({ order }: { order: PurchaseOrder }) {
           <div>
             <p className="font-mono font-bold text-primary">{order.poNumber}</p>
             <h2 className="font-semibold">{order.title}</h2>
-            <p className="text-sm text-muted-foreground">{order.customerName} · {order.entityType}</p>
+            <p className="text-sm text-muted-foreground">{order.customerName}</p>
           </div>
           <Select value={status} onValueChange={(value) => setStatus(value as PoStatus)}>
             <SelectTrigger className="w-32"><SelectValue /></SelectTrigger>
@@ -70,11 +69,11 @@ export default function PurchaseOrdersPage() {
   const { data: orders, isLoading, isError } = usePurchaseOrders();
   return (
     <div className="p-6 md:p-8 max-w-7xl mx-auto space-y-6">
-      <div><h1 className="text-3xl font-bold tracking-tight">PO Tracker</h1><p className="text-muted-foreground mt-2">Track purchase orders across customers and jobs.</p></div>
+      <div><h1 className="text-3xl font-bold tracking-tight">PO Tracker</h1><p className="text-muted-foreground mt-2">Track equipment and material purchase orders for every job.</p></div>
       {isLoading && <Card><CardContent className="py-12 text-center">Loading purchase orders...</CardContent></Card>}
       {isError && <Card><CardContent className="py-12 text-center text-destructive">Unable to load purchase orders.</CardContent></Card>}
       {!isLoading && !isError && (orders ?? []).length === 0 && <Card><CardContent className="py-14 text-center text-muted-foreground"><ClipboardList className="h-10 w-10 mx-auto mb-3" />No purchase orders yet.</CardContent></Card>}
-      <div className="grid gap-4 lg:grid-cols-2">{(orders ?? []).map((order) => <PurchaseOrderCard key={`${order.entityType}-${order.id}`} order={order} />)}</div>
+      <div className="grid gap-4 lg:grid-cols-2">{(orders ?? []).map((order) => <PurchaseOrderCard key={order.id} order={order} />)}</div>
     </div>
   );
 }

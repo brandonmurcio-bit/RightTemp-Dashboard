@@ -1,9 +1,6 @@
 export type PoStatus = "pending" | "ordered" | "received" | "closed" | "cancelled";
-export type PoEntityType = "customer" | "job";
-
 export interface PurchaseOrder {
   id: string;
-  entityType: PoEntityType;
   poNumber: string;
   title: string;
   customerName: string;

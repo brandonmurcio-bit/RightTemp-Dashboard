@@ -24,6 +24,7 @@ import {
   FileText,
   Download,
   Upload,
+  ClipboardList,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -62,6 +63,7 @@ import {
   useUploadCustomerDocument,
 } from "@/features/customer-documents/customer-documents.hooks";
 import { openCustomerDocument } from "@/features/customer-documents/customer-documents.repository";
+import { useJobs } from "@/features/jobs/jobs.hooks";
 
 const customerUpdateSchema = z.object({
   name: z.string().min(1, "Name is required"),
@@ -95,6 +97,7 @@ export default function CustomerDetailPage() {
   const { data: documents, isLoading: documentsLoading } = useCustomerDocuments(id);
   const uploadDocument = useUploadCustomerDocument();
   const deleteDocument = useDeleteCustomerDocument();
+  const { data: jobs, isLoading: jobsLoading } = useJobs();
   const [selectedFile, setSelectedFile] = useState<File | null>(null);
 
   const form = useForm<CustomerUpdateValues>({
@@ -245,7 +248,7 @@ export default function CustomerDetailPage() {
             </h1>
             <div className="flex items-center gap-2 mt-1">
               <span className="text-sm text-muted-foreground">
-                {customer.poNumber}
+                Customer {customer.customerNumber}
               </span>
               <span
                 className={`px-2 py-0.5 rounded text-[10px] font-bold uppercase tracking-wider ${customer.status === "active" ? "bg-primary/10 text-primary" : "bg-muted text-muted-foreground"}`}
@@ -454,6 +457,48 @@ export default function CustomerDetailPage() {
                   </div>
                 ))}
               </div>
+            </CardContent>
+          </Card>
+
+          <Card>
+            <CardHeader>
+              <CardTitle className="flex items-center gap-2">
+                <ClipboardList className="w-5 h-5 text-primary" /> Job Purchase Orders
+              </CardTitle>
+              <CardDescription>
+                Every purchase order issued for this customer's jobs.
+              </CardDescription>
+            </CardHeader>
+            <CardContent className="space-y-2">
+              {jobsLoading && (
+                <p className="text-sm text-muted-foreground">Loading job POs...</p>
+              )}
+              {!jobsLoading &&
+                (jobs ?? []).filter((job) => job.customerId === id).length === 0 && (
+                  <p className="rounded-lg border border-dashed p-6 text-center text-sm text-muted-foreground">
+                    No job purchase orders yet.
+                  </p>
+                )}
+              {(jobs ?? [])
+                .filter((job) => job.customerId === id)
+                .map((job) => (
+                  <button
+                    key={job.id}
+                    type="button"
+                    onClick={() => setLocation(`/jobs/${job.id}`)}
+                    className="flex w-full items-center justify-between gap-3 rounded-lg border p-3 text-left hover:bg-muted/50"
+                  >
+                    <div className="min-w-0">
+                      <p className="truncate text-sm font-medium">{job.title}</p>
+                      <p className="text-xs capitalize text-muted-foreground">
+                        {job.status.replaceAll("_", " ")}
+                      </p>
+                    </div>
+                    <span className="shrink-0 font-mono text-sm font-semibold text-primary">
+                      {job.poNumber}
+                    </span>
+                  </button>
+                ))}
             </CardContent>
           </Card>
         </div>

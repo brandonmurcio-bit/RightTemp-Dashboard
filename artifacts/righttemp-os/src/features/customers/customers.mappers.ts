@@ -22,7 +22,7 @@ export function mapCustomerRowToCustomer(
     notes: row.notes,
     createdAt: row.created_at,
     updatedAt: row.updated_at,
-    poNumber: row.po_number,
+    customerNumber: row.customer_number,
   };
 }
 
