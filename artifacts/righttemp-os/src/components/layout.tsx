@@ -15,9 +15,9 @@ export function Layout({ children }: { children: React.ReactNode }) {
   const navItems = [
     { label: "Dashboard", path: "/", icon: LayoutDashboard },
     { label: "Leads", path: "/leads", icon: Activity },
-    { label: "Customers", path: "/customers", icon: Users },
-    { label: "Jobs", path: "/jobs", icon: CalendarDays },
     { label: "Estimates", path: "/estimates", icon: FileText },
+    { label: "Jobs", path: "/jobs", icon: CalendarDays },
+    { label: "Customers", path: "/customers", icon: Users },
   ];
 
   return (
