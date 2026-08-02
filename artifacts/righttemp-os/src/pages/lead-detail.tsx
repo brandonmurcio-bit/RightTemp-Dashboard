@@ -87,6 +87,8 @@ const leadUpdateSchema = z.object({
   equipment: z.string().optional(),
 
   scopeOfWork: z.string().optional(),
+  contactedNotes: z.string().optional(),
+  qualifiedNotes: z.string().optional(),
 });
 
 type LeadUpdateValues = z.infer<typeof leadUpdateSchema>;
@@ -111,6 +113,8 @@ function getLeadFormValues(lead: Lead): LeadUpdateValues {
     estimatePrice: lead.estimatePrice ?? undefined,
     equipment: lead.equipment ?? "",
     scopeOfWork: lead.scopeOfWork ?? "",
+    contactedNotes: lead.contactedNotes ?? "",
+    qualifiedNotes: lead.qualifiedNotes ?? "",
   };
 }
 export default function LeadDetailPage() {
@@ -140,6 +144,8 @@ export default function LeadDetailPage() {
       estimatePrice: undefined,
       equipment: "",
       scopeOfWork: "",
+      contactedNotes: "",
+      qualifiedNotes: "",
     },
   });
 
@@ -501,6 +507,36 @@ export default function LeadDetailPage() {
                 {...form.register("scopeOfWork")}
               />
             </div>
+          </CardContent>
+        </Card>
+      )}
+      {form.watch("status") === "contacted" && (
+        <Card>
+          <CardHeader>
+            <CardTitle>Contacted Notes</CardTitle>
+            <CardDescription>Record the conversation, objections, timing, and next follow-up.</CardDescription>
+          </CardHeader>
+          <CardContent>
+            <Textarea
+              rows={6}
+              placeholder="Spoke with homeowner. System is 18 years old. Comparing options Friday..."
+              {...form.register("contactedNotes")}
+            />
+          </CardContent>
+        </Card>
+      )}
+      {form.watch("status") === "qualified" && (
+        <Card>
+          <CardHeader>
+            <CardTitle>Qualified Notes</CardTitle>
+            <CardDescription>Capture budget, decision makers, equipment needs, and buying timeline.</CardDescription>
+          </CardHeader>
+          <CardContent>
+            <Textarea
+              rows={6}
+              placeholder="Budget approved. Both homeowners decide. Wants inverter system before August..."
+              {...form.register("qualifiedNotes")}
+            />
           </CardContent>
         </Card>
       )}

@@ -1,4 +1,4 @@
-import { CalendarDays, Plus, UserRound } from "lucide-react";
+import { CalendarDays, ClipboardList, Plus, UserRound } from "lucide-react";
 import { Link } from "wouter";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
@@ -22,12 +22,10 @@ export default function JobsPage() {
             Scheduled installs and active jobs.
           </p>
         </div>
-        <Button asChild>
-          <Link href="/jobs/new">
-            <Plus className="mr-2 h-4 w-4" />
-            New Job
-          </Link>
-        </Button>
+        <div className="flex gap-2">
+          <Button variant="outline" asChild><Link href="/purchase-orders"><ClipboardList className="mr-2 h-4 w-4" />PO Tracker</Link></Button>
+          <Button asChild><Link href="/jobs/new"><Plus className="mr-2 h-4 w-4" />New Job</Link></Button>
+        </div>
       </div>
 
       {isLoading && (

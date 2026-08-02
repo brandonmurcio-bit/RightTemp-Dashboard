@@ -245,7 +245,7 @@ export default function CustomerDetailPage() {
             </h1>
             <div className="flex items-center gap-2 mt-1">
               <span className="text-sm text-muted-foreground">
-                Customer #{customer.id}
+                {customer.poNumber}
               </span>
               <span
                 className={`px-2 py-0.5 rounded text-[10px] font-bold uppercase tracking-wider ${customer.status === "active" ? "bg-primary/10 text-primary" : "bg-muted text-muted-foreground"}`}

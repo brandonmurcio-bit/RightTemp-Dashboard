@@ -18,5 +18,6 @@ export function mapJobRowToJob(row: JobRow): Job {
     notes: row.notes,
     createdAt: row.created_at,
     updatedAt: row.updated_at,
+    poNumber: row.po_number,
   };
 }

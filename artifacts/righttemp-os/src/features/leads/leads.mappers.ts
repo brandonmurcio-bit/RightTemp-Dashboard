@@ -20,6 +20,8 @@ export function mapLeadRowToLead(row: LeadRow): Lead {
     estimatePrice: row.estimate_price,
     equipment: row.equipment,
     scopeOfWork: row.scope_of_work,
+    contactedNotes: row.contacted_notes,
+    qualifiedNotes: row.qualified_notes,
   };
 }
 
@@ -44,5 +46,7 @@ export function mapLeadInputToInsert(
     estimate_price: input.estimatePrice ?? null,
     equipment: input.equipment ?? null,
     scope_of_work: input.scopeOfWork ?? null,
+    contacted_notes: input.contactedNotes ?? null,
+    qualified_notes: input.qualifiedNotes ?? null,
   };
 }

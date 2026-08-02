@@ -16,6 +16,8 @@ const leadSelect = `
   estimate_price,
   equipment,
   scope_of_work,
+  contacted_notes,
+  qualified_notes,
   created_at
 `;
 

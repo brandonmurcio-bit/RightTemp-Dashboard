@@ -19,6 +19,7 @@ export interface Job {
   notes: string | null;
   createdAt: string;
   updatedAt: string;
+  poNumber: string;
 }
 
 export interface JobRow {
@@ -38,6 +39,7 @@ export interface JobRow {
   notes: string | null;
   created_at: string;
   updated_at: string;
+  po_number: string;
 }
 
 export interface JobInput {

@@ -22,6 +22,7 @@ export interface Customer {
   notes: string | null;
   createdAt: string;
   updatedAt: string;
+  poNumber: string;
 }
 
 export interface CustomerInput {
@@ -52,6 +53,7 @@ export interface CustomerRow {
   notes: string | null;
   created_at: string;
   updated_at: string;
+  po_number: string;
 }
 
 export interface CustomerInsert {

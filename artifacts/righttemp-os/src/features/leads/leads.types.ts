@@ -18,6 +18,8 @@ export interface Lead {
   estimatePrice: number | null;
   equipment: string | null;
   scopeOfWork: string | null;
+  contactedNotes: string | null;
+  qualifiedNotes: string | null;
 }
 
 export interface LeadInput {
@@ -31,6 +33,8 @@ export interface LeadInput {
   estimatePrice?: number;
   equipment?: string;
   scopeOfWork?: string;
+  contactedNotes?: string;
+  qualifiedNotes?: string;
 }
 
 export interface LeadRow {
@@ -55,6 +59,8 @@ export interface LeadRow {
   estimate_price: number | null;
   equipment: string | null;
   scope_of_work: string | null;
+  contacted_notes: string | null;
+  qualified_notes: string | null;
 }
 
 export interface LeadInsert {
@@ -69,4 +75,6 @@ export interface LeadInsert {
   estimate_price: number | null;
   equipment: string | null;
   scope_of_work: string | null;
+  contacted_notes: string | null;
+  qualified_notes: string | null;
 }

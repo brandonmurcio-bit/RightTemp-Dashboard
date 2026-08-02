@@ -7,6 +7,7 @@ const jobSelect = `
   id, organization_id, lead_id, customer_id, title, description,
   service_type, status, priority, scheduled_start, scheduled_end,
   completed_at, assigned_to, notes, created_at, updated_at
+  ,po_number
 `;
 
 export async function getJobs(): Promise<Job[]> {

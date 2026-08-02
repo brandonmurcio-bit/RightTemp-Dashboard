@@ -21,6 +21,7 @@ const customerSelect = `
   notes,
   created_at,
   updated_at
+  ,po_number
 `;
 
 function normalizeError(error: unknown, fallbackMessage: string): Error {
