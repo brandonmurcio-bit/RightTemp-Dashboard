@@ -95,7 +95,7 @@ source: z.enum([
   scopeOfWork: z.string().optional(),
 });
 
-type LeadUpdateValues = z.infer<typeof PO>;
+type LeadUpdateValues = z.infer<typeof leadUpdateSchema>;
 
 const pipelineStages: LeadStatus[] = [
   "new",

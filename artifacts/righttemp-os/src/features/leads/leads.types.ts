@@ -31,7 +31,7 @@ export interface Lead {
 
 export interface LeadInput {
   name: string;
-  email: string;
+  email?: string;
   phone: string;
   status: LeadStatus;
   source: LeadSource;

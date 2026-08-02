@@ -33,7 +33,8 @@ export default defineConfig({
     mockupPreviewPlugin(),
     react(),
     tailwindcss(),
-    runtimeErrorOverlay(),
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    runtimeErrorOverlay() as any,
     ...(process.env.NODE_ENV !== "production" &&
     process.env.REPL_ID !== undefined
       ? [
