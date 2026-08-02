@@ -64,7 +64,9 @@ type LeadFormValues = z.infer<typeof leadSchema>;
 export default function LeadsPage() {
   const [search, setSearch] = useState("");
   const [statusFilter, setStatusFilter] = useState("all");
-  const [isCreateOpen, setIsCreateOpen] = useState(false);
+  const [isCreateOpen, setIsCreateOpen] = useState(
+    () => new URLSearchParams(window.location.search).get("new") === "1",
+  );
 
   const { data: leads = [], isLoading } = useLeads();
   const createLead = useCreateLead();

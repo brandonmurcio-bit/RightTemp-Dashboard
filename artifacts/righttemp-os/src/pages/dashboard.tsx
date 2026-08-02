@@ -9,6 +9,7 @@ import {
 } from "@/components/ui/card";
 import {
   Activity,
+  AlertTriangle,
   ArrowUpRight,
   BadgeDollarSign,
   BriefcaseBusiness,
@@ -17,12 +18,12 @@ import {
   Clock3,
   FileText,
   Gauge,
-  PhoneCall,
   Plus,
   TrendingUp,
   UserPlus,
   Users,
   WalletCards,
+  Wrench,
   Zap,
 } from "lucide-react";
 import { Link } from "wouter";
@@ -73,16 +74,13 @@ export default function DashboardPage() {
   const qualifiedLeads = stats.leadsByStatus.qualified ?? 0;
   const proposalLeads = stats.leadsByStatus.proposal ?? 0;
   const newLeads = stats.leadsByStatus.new ?? 0;
+  const lostLeads = stats.leadsByStatus.lost ?? 0;
 
-  const activePipeline = Math.max(totalLeads - wonLeads, 0);
   const money = new Intl.NumberFormat("en-US", {
     style: "currency",
     currency: "USD",
     maximumFractionDigits: 0,
   });
-
-  const conversionRate =
-    totalLeads > 0 ? Math.round((wonLeads / totalLeads) * 100) : 0;
 
   const chartData = [
     {
@@ -109,6 +107,11 @@ export default function DashboardPage() {
       name: "Won",
       value: wonLeads,
       color: "#1565E8",
+    },
+    {
+      name: "Lost",
+      value: lostLeads,
+      color: "#71717A",
     },
   ];
 
@@ -154,7 +157,7 @@ export default function DashboardPage() {
 
               <div className="grid grid-cols-2 gap-3">
                 <Link
-                  href="/leads"
+                  href="/leads?new=1"
                   className="group flex items-center gap-3 rounded-2xl border border-red-500/20 bg-red-500/[0.06] p-4 hover:bg-red-500/[0.12] hover:border-red-500/35 transition-all"
                 >
                   <div className="rounded-xl bg-red-500/15 p-2.5">
@@ -164,7 +167,7 @@ export default function DashboardPage() {
                   <div className="min-w-0">
                     <p className="text-sm font-semibold">New Lead</p>
                     <p className="text-[11px] text-muted-foreground mt-0.5">
-                      Open leads
+                      Add to pipeline
                     </p>
                   </div>
                 </Link>
@@ -178,7 +181,7 @@ export default function DashboardPage() {
                   </div>
 
                   <div className="min-w-0">
-                    <p className="text-sm font-semibold">Add Customer</p>
+                    <p className="text-sm font-semibold">Customers</p>
                     <p className="text-[11px] text-muted-foreground mt-0.5">
                       Open customers
                     </p>
@@ -238,25 +241,25 @@ export default function DashboardPage() {
             <div className="grid grid-cols-2 gap-3">
               <div className="rounded-2xl border border-red-500/15 bg-red-500/[0.045] p-4">
                 <div className="flex items-center justify-between">
-                  <p className="text-xs text-muted-foreground">New Leads</p>
+                  <p className="text-xs text-muted-foreground">New Leads Today</p>
                   <Activity className="w-4 h-4 text-red-400" />
                 </div>
 
-                <p className="text-2xl font-bold font-mono mt-3">{newLeads}</p>
+                <p className="text-2xl font-bold font-mono mt-3">{stats.newLeadsToday}</p>
                 <p className="text-[11px] text-muted-foreground mt-1">
-                  Currently marked new
+                  Added since midnight
                 </p>
               </div>
 
               <div className="rounded-2xl border border-blue-500/15 bg-blue-500/[0.045] p-4">
                 <div className="flex items-center justify-between">
-                  <p className="text-xs text-muted-foreground">Calls Today</p>
-                  <PhoneCall className="w-4 h-4 text-blue-400" />
+                  <p className="text-xs text-muted-foreground">Open Balance</p>
+                  <WalletCards className="w-4 h-4 text-blue-400" />
                 </div>
 
-                <p className="text-2xl font-bold font-mono mt-3">—</p>
+                <p className="text-xl md:text-2xl font-bold font-mono mt-3">{money.format(stats.outstandingInvoiceTotal)}</p>
                 <p className="text-[11px] text-muted-foreground mt-1">
-                  Phone tracking coming soon
+                  Across unpaid invoices
                 </p>
               </div>
 
@@ -280,9 +283,9 @@ export default function DashboardPage() {
                   <BadgeDollarSign className="w-4 h-4 text-emerald-400" />
                 </div>
 
-                <p className="text-2xl font-bold font-mono mt-3">$—</p>
+                <p className="text-xl md:text-2xl font-bold font-mono mt-3">{money.format(stats.collectedToday)}</p>
                 <p className="text-[11px] text-muted-foreground mt-1">
-                  Invoicing coming soon
+                  Payments collected today
                 </p>
               </div>
             </div>
@@ -330,12 +333,12 @@ export default function DashboardPage() {
           </CardHeader>
 
           <CardContent>
-            <div className="text-3xl md:text-4xl font-extrabold font-mono">
-              {activePipeline}
+            <div className="text-2xl md:text-4xl font-extrabold font-mono">
+              {money.format(stats.activePipelineValue)}
             </div>
 
             <p className="text-xs text-muted-foreground mt-2">
-              Leads still in progress
+              {stats.activePipelineCount} open leads · {stats.openEstimateCount} estimates
             </p>
           </CardContent>
         </Card>
@@ -359,7 +362,7 @@ export default function DashboardPage() {
             </div>
 
             <p className="text-xs text-muted-foreground mt-2">
-              Currently being serviced
+              Customers with open jobs
             </p>
           </CardContent>
         </Card>
@@ -379,11 +382,11 @@ export default function DashboardPage() {
 
           <CardContent>
             <div className="text-3xl md:text-4xl font-extrabold font-mono">
-              {conversionRate}%
+              {Math.round(stats.conversionRate)}%
             </div>
 
             <p className="text-xs text-muted-foreground mt-2">
-              Won leads divided by total leads
+              Won out of won + lost leads
             </p>
           </CardContent>
         </Card>
@@ -430,7 +433,7 @@ export default function DashboardPage() {
             </div>
 
             <p className="text-xs text-muted-foreground mt-4">
-              {money.format(stats.monthlyRevenue)} revenue · {stats.monthlyMarginPercent === null ? "—" : `${stats.monthlyMarginPercent.toFixed(1)}%`} margin
+              {money.format(stats.monthlyRevenue)} completed-job revenue · {stats.monthlyMarginPercent === null ? "—" : `${stats.monthlyMarginPercent.toFixed(1)}%`} margin
             </p>
           </CardContent>
         </Card>
@@ -624,45 +627,69 @@ export default function DashboardPage() {
       </section>
 
       {/* Bottom Operations Strip */}
-      <section className="grid grid-cols-1 lg:grid-cols-3 gap-4">
-        <Card className="border-red-500/15 bg-red-500/[0.035]">
+      <section className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-4">
+        <Link href="/leads">
+        <Card className="h-full border-red-500/15 bg-red-500/[0.035] hover:border-red-500/35 transition-colors">
           <CardContent className="p-5 flex items-center gap-4">
             <div className="rounded-2xl bg-red-500/10 p-3">
               <Activity className="w-5 h-5 text-red-400" />
             </div>
 
             <div>
-              <p className="text-sm text-muted-foreground">New Leads</p>
-              <p className="text-2xl font-bold mt-1">{newLeads}</p>
+              <p className="text-sm text-muted-foreground">Unscheduled Wins</p>
+              <p className="text-2xl font-bold mt-1">{stats.unscheduledWonLeads}</p>
+              <p className="text-xs text-muted-foreground mt-1">Won leads without a job</p>
             </div>
           </CardContent>
         </Card>
+        </Link>
 
-        <Card className="border-violet-500/15 bg-violet-500/[0.035]">
+        <Link href="/estimates">
+        <Card className="h-full border-violet-500/15 bg-violet-500/[0.035] hover:border-violet-500/35 transition-colors">
           <CardContent className="p-5 flex items-center gap-4">
             <div className="rounded-2xl bg-violet-500/10 p-3">
               <BriefcaseBusiness className="w-5 h-5 text-violet-400" />
             </div>
 
             <div>
-              <p className="text-sm text-muted-foreground">Proposals Pending</p>
-              <p className="text-2xl font-bold mt-1">{proposalLeads}</p>
+              <p className="text-sm text-muted-foreground">Pending Estimates</p>
+              <p className="text-2xl font-bold mt-1">{stats.pendingEstimateCount}</p>
+              <p className="text-xs text-muted-foreground mt-1">Draft or sent estimates</p>
             </div>
           </CardContent>
         </Card>
+        </Link>
 
-        <Card className="border-blue-500/15 bg-blue-500/[0.035]">
+        <Link href="/invoices">
+        <Card className="h-full border-amber-500/15 bg-amber-500/[0.035] hover:border-amber-500/35 transition-colors">
           <CardContent className="p-5 flex items-center gap-4">
             <div className="rounded-2xl bg-blue-500/10 p-3">
-              <CheckCircle2 className="w-5 h-5 text-blue-400" />
+              <AlertTriangle className="w-5 h-5 text-amber-400" />
             </div>
 
             <div>
-              <p className="text-sm text-muted-foreground">Won Leads</p>
-              <p className="text-2xl font-bold mt-1">{wonLeads}</p>
+              <p className="text-sm text-muted-foreground">Overdue Invoices</p>
+              <p className="text-2xl font-bold mt-1">{stats.overdueInvoiceCount}</p>
+              <p className="text-xs text-muted-foreground mt-1">{money.format(stats.overdueInvoiceTotal)} overdue</p>
             </div>
           </CardContent>
         </Card>
+        </Link>
+
+        <Link href="/jobs">
+        <Card className="h-full border-blue-500/15 bg-blue-500/[0.035] hover:border-blue-500/35 transition-colors">
+          <CardContent className="p-5 flex items-center gap-4">
+            <div className="rounded-2xl bg-blue-500/10 p-3">
+              <Wrench className="w-5 h-5 text-blue-400" />
+            </div>
+            <div>
+              <p className="text-sm text-muted-foreground">Jobs Missing Costs</p>
+              <p className="text-2xl font-bold mt-1">{stats.jobsMissingCosts}</p>
+              <p className="text-xs text-muted-foreground mt-1">Add PO or manual costs</p>
+            </div>
+          </CardContent>
+        </Card>
+        </Link>
       </section>
     </div>
   );
