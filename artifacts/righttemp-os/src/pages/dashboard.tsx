@@ -391,7 +391,8 @@ export default function DashboardPage() {
 
       {/* Financial + Operations Cards */}
       <section className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-4">
-        <Card className="border-white/10 bg-gradient-to-br from-card to-blue-950/20">
+        <Link href="/invoices">
+        <Card className="cursor-pointer border-white/10 bg-gradient-to-br from-card to-blue-950/20 transition-colors hover:border-blue-500/40">
           <CardContent className="p-5">
             <div className="flex items-start justify-between">
               <div>
@@ -407,10 +408,11 @@ export default function DashboardPage() {
             </div>
 
             <p className="text-xs text-muted-foreground mt-4">
-              Payments collected this month
+              Payments collected · Tap to view A/R
             </p>
           </CardContent>
         </Card>
+        </Link>
 
         <Card className="border-white/10 bg-gradient-to-br from-card to-red-950/20">
           <CardContent className="p-5">

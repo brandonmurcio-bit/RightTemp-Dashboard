@@ -10,6 +10,7 @@ import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Textarea } from "@/components/ui/textarea";
 import { dashboardQueryKeys } from "@/features/dashboard/dashboard.hooks";
+import { accountsReceivableQueryKeys } from "@/features/accounts-receivable/accounts-receivable.hooks";
 import { invoiceQueryKeys, useCreateInvoice, useDeletePaymentTransaction, useJobInvoice, useMarkInvoiceSent, useRecordPayment, useVoidInvoice } from "@/features/invoices/invoices.hooks";
 import type { JobInvoice, PaymentMethod } from "@/features/invoices/invoices.types";
 import { useToast } from "@/hooks/use-toast";
@@ -77,6 +78,7 @@ export function JobInvoiceCard({ jobId }: { jobId: string }) {
   const refresh = () => {
     queryClient.invalidateQueries({ queryKey: invoiceQueryKeys.job(jobId) });
     queryClient.invalidateQueries({ queryKey: dashboardQueryKeys.stats });
+    queryClient.invalidateQueries({ queryKey: accountsReceivableQueryKeys.all });
   };
   const fail = (title: string) => (error: Error) => toast({ title, description: error.message, variant: "destructive" as const });
 

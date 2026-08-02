@@ -1,6 +1,6 @@
 import React from "react";
 import { Link, useLocation } from "wouter";
-import { Activity, Users, LayoutDashboard, CalendarDays, FileText, LogOut } from "lucide-react";
+import { Activity, Users, LayoutDashboard, CalendarDays, FileText, LogOut, ReceiptText } from "lucide-react";
 import { supabase } from "@/lib/supabase";
 import { PWAPrompt } from "./pwa-prompt";
 
@@ -19,6 +19,7 @@ export function Layout({ children }: { children: React.ReactNode }) {
     { label: "Jobs", path: "/jobs", icon: CalendarDays },
     { label: "Customers", path: "/customers", icon: Users },
   ];
+  const desktopNavItems = [...navItems, { label: "Invoices", path: "/invoices", icon: ReceiptText }];
 
   return (
     <div className="flex min-h-[100dvh] w-full bg-background flex-col md:flex-row">
@@ -34,7 +35,7 @@ export function Layout({ children }: { children: React.ReactNode }) {
         </div>
 
         <nav className="flex flex-col gap-1 flex-1">
-          {navItems.map((item) => {
+          {desktopNavItems.map((item) => {
             const isActive =
               location === item.path ||
               (item.path !== "/" && location.startsWith(item.path));
