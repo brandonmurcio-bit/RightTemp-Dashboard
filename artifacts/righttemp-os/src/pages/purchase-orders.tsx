@@ -10,6 +10,7 @@ import { Textarea } from "@/components/ui/textarea";
 import { purchaseOrderQueryKeys, usePurchaseOrders, useUpdatePurchaseOrder } from "@/features/purchase-orders/purchase-orders.hooks";
 import type { PoStatus, PurchaseOrder } from "@/features/purchase-orders/purchase-orders.types";
 import { useToast } from "@/hooks/use-toast";
+import { JobReceiptManager } from "@/components/job-receipt-manager";
 
 function PurchaseOrderCard({ order }: { order: PurchaseOrder }) {
   const queryClient = useQueryClient();
@@ -60,6 +61,12 @@ function PurchaseOrderCard({ order }: { order: PurchaseOrder }) {
         </div>
         <div className="space-y-2"><Label>PO Notes</Label><Textarea value={notes} onChange={(e) => setNotes(e.target.value)} placeholder="Equipment ordered, pickup date, model numbers..." /></div>
         <Button size="sm" onClick={save} disabled={updateOrder.isPending}><Save className="h-4 w-4 mr-2" />{updateOrder.isPending ? "Saving..." : "Save PO"}</Button>
+        <JobReceiptManager
+          jobId={order.id}
+          customerId={order.customerId}
+          vendor={vendor}
+          amount={amount ? Number(amount) : undefined}
+        />
       </CardContent>
     </Card>
   );

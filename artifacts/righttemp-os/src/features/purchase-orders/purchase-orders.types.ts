@@ -1,6 +1,7 @@
 export type PoStatus = "pending" | "ordered" | "received" | "closed" | "cancelled";
 export interface PurchaseOrder {
   id: string;
+  customerId: string;
   poNumber: string;
   title: string;
   customerName: string;

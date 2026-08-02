@@ -6,13 +6,14 @@ export async function getPurchaseOrders(): Promise<PurchaseOrder[]> {
   const organizationId = await getCurrentOrganizationId();
   const jobsResult = await supabase
     .from("jobs")
-    .select("id, title, po_number, po_status, po_vendor, po_amount, po_notes, created_at, customers!jobs_customer_id_fkey(name)")
+    .select("id, customer_id, title, po_number, po_status, po_vendor, po_amount, po_notes, created_at, customers!jobs_customer_id_fkey(name)")
     .eq("organization_id", organizationId);
   if (jobsResult.error) throw new Error(`Unable to load job POs: ${jobsResult.error.message}`);
   const jobOrders: PurchaseOrder[] = (jobsResult.data ?? []).map((row) => {
     const relation = Array.isArray(row.customers) ? row.customers[0] : row.customers;
     return {
       id: row.id,
+      customerId: row.customer_id,
       poNumber: row.po_number,
       title: row.title,
       customerName: relation?.name ?? "Unknown customer",
