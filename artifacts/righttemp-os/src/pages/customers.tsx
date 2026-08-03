@@ -55,7 +55,7 @@ type CustomerFormValues = z.infer<typeof customerSchema>;
 
 export default function CustomersPage() {
   const [search, setSearch] = useState("");
-  const [statusFilter, setStatusFilter] = useState<string>("all");
+  const [statusFilter, setStatusFilter] = useState<string>("active");
   const [isCreateOpen, setIsCreateOpen] = useState(false);
 
   const { data: customers, isLoading, isError } = useCustomers();

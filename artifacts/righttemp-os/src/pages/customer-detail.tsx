@@ -4,7 +4,6 @@ import {
   customerQueryKeys,
   dashboardQueryKeys,
   useCustomer,
-  useDeleteCustomer,
   useUpdateCustomer,
 } from "@/features/customers/customers.hooks";
 import type { CustomerInput } from "@/features/customers/customers.types";
@@ -15,6 +14,8 @@ import * as z from "zod";
 import {
   ChevronLeft,
   Save,
+  Archive,
+  ArchiveRestore,
   Trash2,
   Calendar,
   MapPin,
@@ -93,7 +94,6 @@ export default function CustomerDetailPage() {
 
   const { data: customer, isLoading, isError } = useCustomer(id);
   const updateCustomer = useUpdateCustomer();
-  const deleteCustomer = useDeleteCustomer();
   const { data: documents, isLoading: documentsLoading } = useCustomerDocuments(id);
   const uploadDocument = useUploadCustomerDocument();
   const deleteDocument = useDeleteCustomerDocument();
@@ -159,25 +159,43 @@ export default function CustomerDetailPage() {
     );
   };
 
-  const handleDelete = () => {
-    deleteCustomer.mutate(id, {
-      onSuccess: () => {
-        queryClient.removeQueries({ queryKey: customerQueryKeys.detail(id) });
+  const handleArchiveToggle = () => {
+    if (!customer) return;
+    const nextStatus = customer.status === "active" ? "inactive" : "active";
+    updateCustomer.mutate({
+      id,
+      data: {
+        name: customer.name,
+        email: customer.email ?? "",
+        phone: customer.phone,
+        address: customer.address ?? undefined,
+        city: customer.city ?? undefined,
+        state: customer.state ?? undefined,
+        zip: customer.zip ?? undefined,
+        status: nextStatus,
+        serviceType: customer.serviceType,
+        notes: customer.notes ?? undefined,
+      },
+    }, {
+      onSuccess: (updated) => {
+        queryClient.setQueryData(customerQueryKeys.detail(id), updated);
         queryClient.invalidateQueries({ queryKey: customerQueryKeys.list() });
         queryClient.invalidateQueries({ queryKey: dashboardQueryKeys.stats });
         toast({
-          title: "Customer deleted",
-          description: "Customer record has been removed.",
+          title: nextStatus === "inactive" ? "Customer archived" : "Customer restored",
+          description: nextStatus === "inactive"
+            ? "The customer is hidden from active operations. All history was preserved."
+            : "The customer is active again.",
         });
-        setLocation("/customers");
+        if (nextStatus === "inactive") setLocation("/customers");
       },
       onError: (error) => {
         toast({
-          title: "Error",
+          title: nextStatus === "inactive" ? "Unable to archive" : "Unable to restore",
           description:
             error instanceof Error
               ? error.message
-              : "Failed to delete customer.",
+              : "Customer status could not be changed.",
           variant: "destructive",
         });
       },
@@ -278,26 +296,28 @@ export default function CustomerDetailPage() {
               <Button
                 variant="outline"
                 size="sm"
-                className="text-destructive border-destructive/20 hover:bg-destructive/10"
+                className={customer.status === "active" ? "text-amber-400 border-amber-500/20 hover:bg-amber-500/10" : "text-emerald-400 border-emerald-500/20 hover:bg-emerald-500/10"}
               >
-                <Trash2 className="w-4 h-4 mr-2" /> Delete
+                {customer.status === "active" ? <Archive className="w-4 h-4 mr-2" /> : <ArchiveRestore className="w-4 h-4 mr-2" />}
+                {customer.status === "active" ? "Archive" : "Restore"}
               </Button>
             </AlertDialogTrigger>
             <AlertDialogContent>
               <AlertDialogHeader>
-                <AlertDialogTitle>Delete Customer Record?</AlertDialogTitle>
+                <AlertDialogTitle>{customer.status === "active" ? "Archive Customer?" : "Restore Customer?"}</AlertDialogTitle>
                 <AlertDialogDescription>
-                  This will permanently erase this customer and all associated
-                  history.
+                  {customer.status === "active"
+                    ? "This removes the customer from active operations while preserving every job, estimate, invoice, payment, photo, receipt, and contract."
+                    : "This returns the customer to active operations. Their complete history is already preserved."}
                 </AlertDialogDescription>
               </AlertDialogHeader>
               <AlertDialogFooter>
                 <AlertDialogCancel>Cancel</AlertDialogCancel>
                 <AlertDialogAction
-                  onClick={handleDelete}
-                  className="bg-destructive text-destructive-foreground"
+                  onClick={handleArchiveToggle}
+                  className={customer.status === "active" ? "bg-amber-600 text-white hover:bg-amber-700" : "bg-emerald-600 text-white hover:bg-emerald-700"}
                 >
-                  Delete
+                  {customer.status === "active" ? "Archive Customer" : "Restore Customer"}
                 </AlertDialogAction>
               </AlertDialogFooter>
             </AlertDialogContent>
