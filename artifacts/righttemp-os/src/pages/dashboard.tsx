@@ -9,21 +9,17 @@ import {
 } from "@/components/ui/card";
 import {
   Activity,
-  AlertTriangle,
   ArrowUpRight,
   BadgeDollarSign,
   BriefcaseBusiness,
   CalendarDays,
   CheckCircle2,
   Clock3,
-  FileText,
   Gauge,
-  Plus,
+  PhoneForwarded,
   TrendingUp,
-  UserPlus,
   Users,
   WalletCards,
-  Wrench,
   Zap,
 } from "lucide-react";
 import { Link } from "wouter";
@@ -149,74 +145,78 @@ export default function DashboardPage() {
               operations.
             </p>
 
-            {/* Quick Actions */}
+            {/* Priority Action Queue */}
             <div className="mt-7">
               <p className="text-xs font-semibold uppercase tracking-[0.18em] text-muted-foreground mb-3">
-                Quick actions
+                Today’s action queue
               </p>
 
               <div className="grid grid-cols-2 gap-3">
                 <Link
-                  href="/leads?new=1"
+                  href={stats.followUpsDue[0] ? `/leads/${stats.followUpsDue[0].id}` : "/leads"}
                   className="group flex items-center gap-3 rounded-2xl border border-red-500/20 bg-red-500/[0.06] p-4 hover:bg-red-500/[0.12] hover:border-red-500/35 transition-all"
                 >
                   <div className="rounded-xl bg-red-500/15 p-2.5">
-                    <Plus className="w-5 h-5 text-red-400" />
+                    <PhoneForwarded className="w-5 h-5 text-red-400" />
                   </div>
 
                   <div className="min-w-0">
-                    <p className="text-sm font-semibold">New Lead</p>
+                    <p className="text-sm font-semibold">{stats.followUpsDue.length} Follow-ups Due</p>
                     <p className="text-[11px] text-muted-foreground mt-0.5">
-                      Add to pipeline
+                      {stats.followUpsDue[0]?.name ?? "Nothing overdue"}
                     </p>
-                  </div>
-                </Link>
-
-                <Link
-                  href="/customers"
-                  className="group flex items-center gap-3 rounded-2xl border border-blue-500/20 bg-blue-500/[0.06] p-4 hover:bg-blue-500/[0.12] hover:border-blue-500/35 transition-all"
-                >
-                  <div className="rounded-xl bg-blue-500/15 p-2.5">
-                    <UserPlus className="w-5 h-5 text-blue-400" />
-                  </div>
-
-                  <div className="min-w-0">
-                    <p className="text-sm font-semibold">Customers</p>
-                    <p className="text-[11px] text-muted-foreground mt-0.5">
-                      Open customers
-                    </p>
+                    <p className="mt-2 text-[11px] font-bold text-red-400">Open Lead <ArrowUpRight className="inline h-3 w-3" /></p>
                   </div>
                 </Link>
 
                 <Link
                   href="/estimates"
-                  className="group flex items-center gap-3 rounded-2xl border border-amber-500/20 bg-amber-500/[0.06] p-4 hover:bg-amber-500/[0.12] hover:border-amber-500/35 transition-all"
+                  className="group flex items-center gap-3 rounded-2xl border border-blue-500/20 bg-blue-500/[0.06] p-4 hover:bg-blue-500/[0.12] hover:border-blue-500/35 transition-all"
                 >
-                  <div className="rounded-xl bg-amber-500/15 p-2.5">
-                    <FileText className="w-5 h-5 text-amber-400" />
+                  <div className="rounded-xl bg-blue-500/15 p-2.5">
+                    <BriefcaseBusiness className="w-5 h-5 text-blue-400" />
                   </div>
 
                   <div className="min-w-0">
-                    <p className="text-sm font-semibold">Create Estimate</p>
+                    <p className="text-sm font-semibold">{stats.sentEstimates.length} Awaiting Decisions</p>
                     <p className="text-[11px] text-muted-foreground mt-0.5">
-                      Open estimates
+                      {stats.sentEstimates[0] ? `${stats.sentEstimates[0].contactName} · ${money.format(stats.sentEstimates[0].total)}` : "No sent estimates waiting"}
                     </p>
+                    <p className="mt-2 text-[11px] font-bold text-blue-400">Review Estimates <ArrowUpRight className="inline h-3 w-3" /></p>
                   </div>
                 </Link>
 
                 <Link
-                  href="/schedule"
-                  className="group flex items-center gap-3 rounded-2xl border border-violet-500/20 bg-violet-500/[0.06] p-4 hover:bg-violet-500/[0.12] hover:border-violet-500/35 transition-all"
+                  href={stats.unscheduledWon[0]?.customerId ? `/jobs/new?leadId=${stats.unscheduledWon[0].id}&customerId=${stats.unscheduledWon[0].customerId}` : stats.unscheduledWon[0] ? `/leads/${stats.unscheduledWon[0].id}` : "/jobs"}
+                  className="group flex items-center gap-3 rounded-2xl border border-amber-500/20 bg-amber-500/[0.06] p-4 hover:bg-amber-500/[0.12] hover:border-amber-500/35 transition-all"
                 >
-                  <div className="rounded-xl bg-violet-500/15 p-2.5">
-                    <CalendarDays className="w-5 h-5 text-violet-400" />
+                  <div className="rounded-xl bg-amber-500/15 p-2.5">
+                    <CalendarDays className="w-5 h-5 text-amber-400" />
                   </div>
 
                   <div className="min-w-0">
-                    <p className="text-sm font-semibold">Schedule</p>
+                    <p className="text-sm font-semibold">{stats.unscheduledWon.length} Won, Unscheduled</p>
                     <p className="text-[11px] text-muted-foreground mt-0.5">
-                      View calendar
+                      {stats.unscheduledWon[0]?.name ?? "Every won job is scheduled"}
                     </p>
+                    <p className="mt-2 text-[11px] font-bold text-amber-400">Schedule Job <ArrowUpRight className="inline h-3 w-3" /></p>
+                  </div>
+                </Link>
+
+                <Link
+                  href="/invoices"
+                  className="group flex items-center gap-3 rounded-2xl border border-violet-500/20 bg-violet-500/[0.06] p-4 hover:bg-violet-500/[0.12] hover:border-violet-500/35 transition-all"
+                >
+                  <div className="rounded-xl bg-violet-500/15 p-2.5">
+                    <WalletCards className="w-5 h-5 text-violet-400" />
+                  </div>
+
+                  <div className="min-w-0">
+                    <p className="text-sm font-semibold">{stats.overdueInvoices.length} Overdue Invoices</p>
+                    <p className="text-[11px] text-muted-foreground mt-0.5">
+                      {stats.overdueInvoices[0] ? `${stats.overdueInvoices[0].contactName} · ${money.format(stats.overdueInvoices[0].balance)}` : "No overdue balances"}
+                    </p>
+                    <p className="mt-2 text-[11px] font-bold text-violet-400">Collect Payment <ArrowUpRight className="inline h-3 w-3" /></p>
                   </div>
                 </Link>
               </div>
@@ -291,6 +291,36 @@ export default function DashboardPage() {
             </div>
           </div>
         </div>
+      </section>
+
+      {/* Today's Schedule */}
+      <section>
+        <Card className="border-violet-500/20 bg-card/80 overflow-hidden">
+          <CardHeader className="flex flex-row items-start justify-between gap-4">
+            <div>
+              <CardTitle className="flex items-center gap-2"><CalendarDays className="h-5 w-5 text-violet-400" />Today’s Schedule</CardTitle>
+              <CardDescription>{stats.todaysJobs.length} job{stats.todaysJobs.length === 1 ? "" : "s"} scheduled today</CardDescription>
+            </div>
+            <Link href="/schedule" className="shrink-0 rounded-lg border border-violet-500/30 bg-violet-500/10 px-3 py-2 text-xs font-bold text-violet-300 hover:bg-violet-500/20 transition-colors">
+              View Full Calendar <ArrowUpRight className="inline h-3.5 w-3.5" />
+            </Link>
+          </CardHeader>
+          <CardContent>
+            {stats.todaysJobs.length === 0 ? (
+              <div className="rounded-xl border border-dashed border-white/10 p-6 text-center"><p className="text-sm text-muted-foreground">No jobs are scheduled today.</p><Link href="/schedule" className="mt-3 inline-block text-sm font-bold text-violet-400">Open Calendar to Schedule <ArrowUpRight className="inline h-4 w-4" /></Link></div>
+            ) : (
+              <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-4">
+                {stats.todaysJobs.map((job) => (
+                  <Link key={job.id} href={`/jobs/${job.id}`} className="group rounded-xl border border-white/10 bg-white/[0.025] p-4 hover:border-violet-500/40 hover:bg-violet-500/[0.06] transition-all">
+                    <div className="flex items-start justify-between gap-2"><div><p className="font-bold">{new Date(job.scheduledStart).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" })}</p><p className="mt-1 text-sm font-semibold line-clamp-1">{job.customerName}</p></div><span className="rounded-full bg-violet-500/10 px-2 py-1 text-[10px] capitalize text-violet-300">{job.status.replace("_", " ")}</span></div>
+                    <p className="mt-2 text-xs text-muted-foreground line-clamp-1">{job.title}{job.assignedTo ? ` · ${job.assignedTo}` : ""}</p>
+                    <p className="mt-3 text-xs font-bold text-violet-400">Open Job <ArrowUpRight className="inline h-3.5 w-3.5" /></p>
+                  </Link>
+                ))}
+              </div>
+            )}
+          </CardContent>
+        </Card>
       </section>
 
       {/* Main KPI Cards */}
@@ -410,8 +440,8 @@ export default function DashboardPage() {
               </div>
             </div>
 
-            <p className="text-xs text-muted-foreground mt-4">
-              Payments collected · Tap to view A/R
+            <p className="text-xs font-semibold text-blue-400 mt-4">
+              View Invoices <ArrowUpRight className="inline h-3.5 w-3.5" />
             </p>
           </CardContent>
         </Card>
@@ -438,7 +468,8 @@ export default function DashboardPage() {
           </CardContent>
         </Card>
 
-        <Card className="border-white/10 bg-card/80">
+        <Link href="/schedule">
+        <Card className="h-full border-white/10 bg-card/80 hover:border-violet-500/40 transition-colors">
           <CardContent className="p-5">
             <div className="flex items-start justify-between">
               <div>
@@ -452,10 +483,11 @@ export default function DashboardPage() {
             </div>
 
             <p className="text-xs text-muted-foreground mt-4">
-              Jobs currently scheduled
+              View Calendar <ArrowUpRight className="inline h-3.5 w-3.5" />
             </p>
           </CardContent>
         </Card>
+        </Link>
 
         <Card className="border-white/10 bg-card/80">
           <CardContent className="p-5">
@@ -609,7 +641,9 @@ export default function DashboardPage() {
                       </div>
                     </div>
 
-                    <ArrowUpRight className="w-4 h-4 text-muted-foreground group-hover:text-blue-400 group-hover:translate-x-0.5 group-hover:-translate-y-0.5 transition-all" />
+                    <span className="shrink-0 text-[11px] font-bold text-blue-400">
+                      Open Lead <ArrowUpRight className="inline w-3.5 h-3.5 group-hover:translate-x-0.5 group-hover:-translate-y-0.5 transition-all" />
+                    </span>
                   </Link>
                 ))}
               </div>
@@ -626,71 +660,6 @@ export default function DashboardPage() {
         </Card>
       </section>
 
-      {/* Bottom Operations Strip */}
-      <section className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-4">
-        <Link href="/leads">
-        <Card className="h-full border-red-500/15 bg-red-500/[0.035] hover:border-red-500/35 transition-colors">
-          <CardContent className="p-5 flex items-center gap-4">
-            <div className="rounded-2xl bg-red-500/10 p-3">
-              <Activity className="w-5 h-5 text-red-400" />
-            </div>
-
-            <div>
-              <p className="text-sm text-muted-foreground">Unscheduled Wins</p>
-              <p className="text-2xl font-bold mt-1">{stats.unscheduledWonLeads}</p>
-              <p className="text-xs text-muted-foreground mt-1">Won leads without a job</p>
-            </div>
-          </CardContent>
-        </Card>
-        </Link>
-
-        <Link href="/estimates">
-        <Card className="h-full border-violet-500/15 bg-violet-500/[0.035] hover:border-violet-500/35 transition-colors">
-          <CardContent className="p-5 flex items-center gap-4">
-            <div className="rounded-2xl bg-violet-500/10 p-3">
-              <BriefcaseBusiness className="w-5 h-5 text-violet-400" />
-            </div>
-
-            <div>
-              <p className="text-sm text-muted-foreground">Pending Estimates</p>
-              <p className="text-2xl font-bold mt-1">{stats.pendingEstimateCount}</p>
-              <p className="text-xs text-muted-foreground mt-1">Draft or sent estimates</p>
-            </div>
-          </CardContent>
-        </Card>
-        </Link>
-
-        <Link href="/invoices">
-        <Card className="h-full border-amber-500/15 bg-amber-500/[0.035] hover:border-amber-500/35 transition-colors">
-          <CardContent className="p-5 flex items-center gap-4">
-            <div className="rounded-2xl bg-blue-500/10 p-3">
-              <AlertTriangle className="w-5 h-5 text-amber-400" />
-            </div>
-
-            <div>
-              <p className="text-sm text-muted-foreground">Overdue Invoices</p>
-              <p className="text-2xl font-bold mt-1">{stats.overdueInvoiceCount}</p>
-              <p className="text-xs text-muted-foreground mt-1">{money.format(stats.overdueInvoiceTotal)} overdue</p>
-            </div>
-          </CardContent>
-        </Card>
-        </Link>
-
-        <Link href="/jobs">
-        <Card className="h-full border-blue-500/15 bg-blue-500/[0.035] hover:border-blue-500/35 transition-colors">
-          <CardContent className="p-5 flex items-center gap-4">
-            <div className="rounded-2xl bg-blue-500/10 p-3">
-              <Wrench className="w-5 h-5 text-blue-400" />
-            </div>
-            <div>
-              <p className="text-sm text-muted-foreground">Jobs Missing Costs</p>
-              <p className="text-2xl font-bold mt-1">{stats.jobsMissingCosts}</p>
-              <p className="text-xs text-muted-foreground mt-1">Add PO or manual costs</p>
-            </div>
-          </CardContent>
-        </Card>
-        </Link>
-      </section>
     </div>
   );
 }

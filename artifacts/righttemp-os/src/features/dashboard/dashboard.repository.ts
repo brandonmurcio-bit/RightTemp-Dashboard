@@ -27,7 +27,7 @@ export async function getDashboardStats(): Promise<DashboardStats> {
     await Promise.all([
       supabase
         .from("leads")
-        .select("id, status, created_at")
+        .select("id, name, phone, status, created_at, follow_up_date, customer_id")
         .eq("organization_id", organizationId),
       supabase
         .from("leads")
@@ -37,15 +37,15 @@ export async function getDashboardStats(): Promise<DashboardStats> {
         .limit(6),
       supabase
         .from("customers")
-        .select("status")
+        .select("id, name, status")
         .eq("organization_id", organizationId),
       supabase
         .from("jobs")
-        .select("id, lead_id, customer_id, status, scheduled_start, completed_at, po_amount")
+        .select("id, title, lead_id, customer_id, status, scheduled_start, completed_at, assigned_to, po_amount")
         .eq("organization_id", organizationId),
       supabase
         .from("estimates")
-        .select("job_id, total, status")
+        .select("id, title, customer_id, lead_id, job_id, total, status, created_at")
         .eq("organization_id", organizationId),
       supabase
         .from("job_costs")
@@ -58,7 +58,7 @@ export async function getDashboardStats(): Promise<DashboardStats> {
         .gte("payment_date", monthDate),
       supabase
         .from("payments")
-        .select("total, amount_paid, status, created_at")
+        .select("id, customer_id, total, amount_paid, status, created_at")
         .eq("organization_id", organizationId),
     ]);
 
@@ -88,6 +88,7 @@ export async function getDashboardStats(): Promise<DashboardStats> {
   }
 
   const customers = customersResult.data ?? [];
+  const leads = leadStatusesResult.data ?? [];
   const jobs = jobsResult.data ?? [];
   const estimates = estimatesResult.data ?? [];
   const costs = costsResult.data ?? [];
@@ -96,6 +97,8 @@ export async function getDashboardStats(): Promise<DashboardStats> {
   const todayStartMs = startOfToday.getTime();
   const tomorrowStartMs = startOfTomorrow.getTime();
   const openJobs = jobs.filter((row) => ["scheduled", "in_progress", "on_hold"].includes(row.status));
+  const customerNames = new Map(customers.map((row) => [row.id, row.name]));
+  const leadNames = new Map(leads.map((row) => [row.id, row.name]));
   const activeCustomerIds = new Set(
     openJobs.map((row) => row.customer_id).filter((id): id is string => Boolean(id)),
   );
@@ -138,6 +141,14 @@ export async function getDashboardStats(): Promise<DashboardStats> {
     due.setDate(due.getDate() + 30);
     return due < startOfToday;
   });
+  const todaysJobs = jobs
+    .filter((row) => {
+      if (!row.scheduled_start) return false;
+      const scheduledTime = new Date(row.scheduled_start).getTime();
+      return scheduledTime >= todayStartMs && scheduledTime < tomorrowStartMs;
+    })
+    .sort((a, b) => new Date(a.scheduled_start!).getTime() - new Date(b.scheduled_start!).getTime());
+  const unscheduledWon = leads.filter((row) => row.status === "won" && !jobsByLeadId.has(row.id));
 
   return {
     totalLeads: leadStatusesResult.data?.length ?? 0,
@@ -161,7 +172,7 @@ export async function getDashboardStats(): Promise<DashboardStats> {
     outstandingInvoiceTotal,
     overdueInvoiceCount: overdueInvoices.length,
     overdueInvoiceTotal: overdueInvoices.reduce((sum, row) => sum + Math.max(Number(row.total) - Number(row.amount_paid), 0), 0),
-    unscheduledWonLeads: leadStatusesResult.data?.filter((row) => row.status === "won" && !jobsByLeadId.has(row.id)).length ?? 0,
+    unscheduledWonLeads: unscheduledWon.length,
     jobsMissingCosts: jobs.filter((row) =>
       !["cancelled"].includes(row.status) &&
       Number(row.po_amount ?? 0) === 0 &&
@@ -176,5 +187,38 @@ export async function getDashboardStats(): Promise<DashboardStats> {
       monthlyRevenue > 0 ? (monthlyProfit / monthlyRevenue) * 100 : null,
     leadsByStatus,
     recentLeads: (recentLeadsResult.data ?? []) as DashboardLead[],
+    followUpsDue: leads
+      .filter((row) => row.follow_up_date && row.follow_up_date <= todayDate && !["won", "lost"].includes(row.status))
+      .sort((a, b) => a.follow_up_date!.localeCompare(b.follow_up_date!))
+      .map((row) => ({ id: row.id, name: row.name, phone: row.phone ?? "", followUpDate: row.follow_up_date! })),
+    sentEstimates: estimates
+      .filter((row) => row.status === "sent")
+      .sort((a, b) => new Date(a.created_at).getTime() - new Date(b.created_at).getTime())
+      .map((row) => ({
+        id: row.id,
+        contactName: (row.customer_id && customerNames.get(row.customer_id)) || (row.lead_id && leadNames.get(row.lead_id)) || "Unknown contact",
+        title: row.title,
+        total: Number(row.total),
+        createdAt: row.created_at,
+      })),
+    unscheduledWon: unscheduledWon.map((row) => ({ id: row.id, name: row.name, customerId: row.customer_id })),
+    overdueInvoices: overdueInvoices.map((row) => {
+      const due = new Date(row.created_at);
+      due.setDate(due.getDate() + 30);
+      return {
+        id: row.id,
+        contactName: (row.customer_id && customerNames.get(row.customer_id)) || "Unknown customer",
+        balance: Math.max(Number(row.total) - Number(row.amount_paid), 0),
+        daysOverdue: Math.max(Math.floor((todayStartMs - due.getTime()) / 86_400_000), 1),
+      };
+    }),
+    todaysJobs: todaysJobs.map((row) => ({
+      id: row.id,
+      title: row.title,
+      customerName: (row.customer_id && customerNames.get(row.customer_id)) || "Unknown customer",
+      scheduledStart: row.scheduled_start!,
+      status: row.status,
+      assignedTo: row.assigned_to,
+    })),
   };
 }

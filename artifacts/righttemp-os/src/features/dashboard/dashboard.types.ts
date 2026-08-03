@@ -6,6 +6,43 @@ export interface DashboardLead {
   status: LeadStatus;
 }
 
+export interface DashboardFollowUp {
+  id: string;
+  name: string;
+  phone: string;
+  followUpDate: string;
+}
+
+export interface DashboardEstimateAction {
+  id: string;
+  contactName: string;
+  title: string;
+  total: number;
+  createdAt: string;
+}
+
+export interface DashboardWonLead {
+  id: string;
+  name: string;
+  customerId: string | null;
+}
+
+export interface DashboardInvoiceAction {
+  id: string;
+  contactName: string;
+  balance: number;
+  daysOverdue: number;
+}
+
+export interface DashboardTodayJob {
+  id: string;
+  title: string;
+  customerName: string;
+  scheduledStart: string;
+  status: string;
+  assignedTo: string | null;
+}
+
 export interface DashboardStats {
   totalLeads: number;
   totalCustomers: number;
@@ -31,4 +68,9 @@ export interface DashboardStats {
   monthlyMarginPercent: number | null;
   leadsByStatus: Record<LeadStatus, number>;
   recentLeads: DashboardLead[];
+  followUpsDue: DashboardFollowUp[];
+  sentEstimates: DashboardEstimateAction[];
+  unscheduledWon: DashboardWonLead[];
+  overdueInvoices: DashboardInvoiceAction[];
+  todaysJobs: DashboardTodayJob[];
 }
