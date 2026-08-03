@@ -22,6 +22,10 @@ export interface Estimate {
   status: EstimateStatus;
   validUntil: string | null;
   notes: string | null;
+  signedBy: string | null;
+  signatureDataUrl: string | null;
+  signedAt: string | null;
+  rejectedAt: string | null;
   createdAt: string;
 }
 
@@ -49,7 +53,16 @@ export interface EstimateRow {
   status: EstimateStatus;
   valid_until: string | null;
   notes: string | null;
+  signed_by: string | null;
+  signature_data_url: string | null;
+  signed_at: string | null;
+  rejected_at: string | null;
   created_at: string;
   customers: { name: string } | { name: string }[] | null;
   leads: { name: string } | { name: string }[] | null;
+}
+
+export interface EstimateAcceptanceInput {
+  signedBy: string;
+  signatureDataUrl: string;
 }

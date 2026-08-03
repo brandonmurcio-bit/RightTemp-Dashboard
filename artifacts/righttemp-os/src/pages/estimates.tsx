@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { useQueryClient } from "@tanstack/react-query";
-import { CheckCircle2, FileText, Pencil, Plus, Send, Trash2 } from "lucide-react";
+import { Eye, FileText, Pencil, Plus, Send, Trash2 } from "lucide-react";
+import { useLocation } from "wouter";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
@@ -12,6 +13,7 @@ import { useCustomers } from "@/features/customers/customers.hooks";
 import { useLeads } from "@/features/leads/leads.hooks";
 import {
   estimateQueryKeys,
+  useAcceptEstimate,
   useCreateEstimate,
   useDeleteEstimate,
   useEstimates,
@@ -21,6 +23,7 @@ import {
 import type { Estimate, EstimateInput, EstimateStatus } from "@/features/estimates/estimates.types";
 import { useToast } from "@/hooks/use-toast";
 import { EstimateWalkthroughPhotos } from "@/components/estimate-walkthrough-photos";
+import { EstimateProposalDialog } from "@/components/estimate-proposal-dialog";
 
 const money = new Intl.NumberFormat("en-US", { style: "currency", currency: "USD" });
 const statusColors: Record<EstimateStatus, string> = {
@@ -33,6 +36,7 @@ const statusColors: Record<EstimateStatus, string> = {
 };
 
 export default function EstimatesPage() {
+  const [, setLocation] = useLocation();
   const queryClient = useQueryClient();
   const { toast } = useToast();
   const { data: estimates, isLoading, isError } = useEstimates();
@@ -42,6 +46,7 @@ export default function EstimatesPage() {
   const editEstimate = useUpdateEstimate();
   const deleteEstimate = useDeleteEstimate();
   const updateStatus = useUpdateEstimateStatus();
+  const acceptEstimate = useAcceptEstimate();
   const [open, setOpen] = useState(false);
   const [editingId, setEditingId] = useState<string | null>(null);
   const [customerId, setCustomerId] = useState("");
@@ -53,6 +58,7 @@ export default function EstimatesPage() {
   const [taxPercent, setTaxPercent] = useState("0");
   const [validUntil, setValidUntil] = useState("");
   const [notes, setNotes] = useState("");
+  const [previewEstimate, setPreviewEstimate] = useState<Estimate | null>(null);
 
   useEffect(() => {
     const requestedCustomerId = new URLSearchParams(window.location.search).get("customerId");
@@ -169,6 +175,21 @@ export default function EstimatesPage() {
     });
   };
 
+  const accept = (acceptance: { signedBy: string; signatureDataUrl: string }) => {
+    if (!previewEstimate) return;
+    acceptEstimate.mutate({ estimate: previewEstimate, acceptance }, {
+      onSuccess: ({ customerId, leadId }) => {
+        queryClient.invalidateQueries({ queryKey: estimateQueryKeys.all });
+        setPreviewEstimate(null);
+        toast({ title: "Estimate accepted", description: "Signature saved. Finish creating and scheduling the job." });
+        const params = new URLSearchParams({ customerId });
+        if (leadId) params.set("leadId", leadId);
+        setLocation(`/jobs/new?${params.toString()}`);
+      },
+      onError: (error) => toast({ title: "Acceptance failed", description: error.message, variant: "destructive" }),
+    });
+  };
+
   return (
     <div className="p-6 md:p-8 max-w-7xl mx-auto space-y-6">
       <div className="flex items-center justify-between gap-4">
@@ -211,9 +232,9 @@ export default function EstimatesPage() {
                 <span className={`rounded-full px-2.5 py-1 text-xs font-medium capitalize ${statusColors[estimate.status]}`}>{estimate.status}</span>
               </div>
               <div className="flex items-end justify-between"><div><p className="text-xs text-muted-foreground">Total</p><p className="text-2xl font-bold">{money.format(estimate.total)}</p></div><p className="text-xs text-muted-foreground">{estimate.validUntil ? `Valid until ${estimate.validUntil}` : "No expiration"}</p></div>
-              <div className="flex gap-2">
+              <div className="flex flex-wrap gap-2">
+                <Button size="sm" variant="outline" onClick={() => setPreviewEstimate(estimate)}><Eye className="h-4 w-4 mr-2" />Preview / Sign</Button>
                 {estimate.status === "draft" && <Button size="sm" variant="outline" onClick={() => changeStatus(estimate.id, "sent")}><Send className="h-4 w-4 mr-2" />Mark Sent</Button>}
-                {estimate.status === "sent" && <Button size="sm" onClick={() => changeStatus(estimate.id, "approved")}><CheckCircle2 className="h-4 w-4 mr-2" />Approve</Button>}
                 {estimate.status === "sent" && <Button size="sm" variant="outline" onClick={() => changeStatus(estimate.id, "rejected")}>Reject</Button>}
                 <Button size="sm" variant="outline" onClick={() => beginEdit(estimate)}><Pencil className="h-4 w-4 mr-2" />Edit</Button>
                 <Button size="sm" variant="outline" className="text-destructive" disabled={deleteEstimate.isPending} onClick={() => removeEstimate(estimate)}><Trash2 className="h-4 w-4" /></Button>
@@ -229,6 +250,13 @@ export default function EstimatesPage() {
           </Card>
         ))}
       </div>
+      <EstimateProposalDialog
+        estimate={previewEstimate}
+        open={Boolean(previewEstimate)}
+        onOpenChange={(nextOpen) => { if (!nextOpen) setPreviewEstimate(null); }}
+        onAccept={accept}
+        isAccepting={acceptEstimate.isPending}
+      />
     </div>
   );
 }

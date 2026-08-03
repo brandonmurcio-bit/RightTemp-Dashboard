@@ -1,10 +1,11 @@
 import { getCurrentOrganizationId } from "@/lib/get-current-organization-id";
 import { supabase } from "@/lib/supabase";
-import type { Estimate, EstimateInput, EstimateRow, EstimateStatus } from "./estimates.types";
+import type { Estimate, EstimateAcceptanceInput, EstimateInput, EstimateRow, EstimateStatus } from "./estimates.types";
 
 const estimateSelect = `
   id, customer_id, lead_id, estimate_number, title, line_items, subtotal, tax_rate,
-  tax_amount, total, status, valid_until, notes, created_at,
+  tax_amount, total, status, valid_until, notes, signed_by, signature_data_url,
+  signed_at, rejected_at, created_at,
   customers!estimates_customer_id_fkey(name), leads!estimates_lead_id_fkey(name)
 `;
 
@@ -26,6 +27,10 @@ function mapEstimate(row: EstimateRow): Estimate {
     status: row.status,
     validUntil: row.valid_until,
     notes: row.notes,
+    signedBy: row.signed_by,
+    signatureDataUrl: row.signature_data_url,
+    signedAt: row.signed_at,
+    rejectedAt: row.rejected_at,
     createdAt: row.created_at,
   };
 }
@@ -108,6 +113,7 @@ export async function updateEstimateStatus(id: string, status: EstimateStatus): 
   const timestamps = {
     ...(status === "sent" ? { sent_at: new Date().toISOString() } : {}),
     ...(status === "approved" ? { approved_at: new Date().toISOString() } : {}),
+    ...(status === "rejected" ? { rejected_at: new Date().toISOString() } : {}),
   };
   const { error } = await supabase
     .from("estimates")
@@ -115,4 +121,19 @@ export async function updateEstimateStatus(id: string, status: EstimateStatus): 
     .eq("id", id)
     .eq("organization_id", organizationId);
   if (error) throw new Error(`Unable to update estimate: ${error.message}`);
+}
+
+export async function acceptEstimate(
+  estimate: Estimate,
+  acceptance: EstimateAcceptanceInput,
+): Promise<{ customerId: string; leadId: string | null }> {
+  const { data, error } = await supabase.rpc("accept_estimate", {
+    p_estimate_id: estimate.id,
+    p_signed_by: acceptance.signedBy,
+    p_signature_data_url: acceptance.signatureDataUrl,
+  });
+  if (error) throw new Error(`Unable to accept estimate: ${error.message}`);
+  const result = Array.isArray(data) ? data[0] : data;
+  if (!result?.customer_id) throw new Error("Estimate acceptance returned no customer.");
+  return { customerId: result.customer_id as string, leadId: (result.lead_id as string | null) ?? null };
 }
