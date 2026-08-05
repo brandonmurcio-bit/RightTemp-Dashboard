@@ -1,0 +1,9 @@
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "righttemp-inc",
+  "compatibility_date": "2026-08-05",
+  "assets": {
+    "directory": "./artifacts/righttemp-os/dist/public",
+    "not_found_handling": "single-page-application"
+  }
+}
