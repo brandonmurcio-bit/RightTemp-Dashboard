@@ -1,4 +1,6 @@
-import { useMutation, useQuery } from "@tanstack/react-query";
+import { useEffect } from "react";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { supabase } from "@/lib/supabase";
 import {
   convertLeadToCustomer,
   createLead,
@@ -20,10 +22,25 @@ export const dashboardQueryKeys = {
 };
 
 export function useLeads() {
-  return useQuery({
+  const queryClient = useQueryClient();
+  const query = useQuery({
     queryKey: leadQueryKeys.list(),
     queryFn: getLeads,
   });
+
+  useEffect(() => {
+    const channel = supabase
+      .channel("righttemp-leads-live")
+      .on("postgres_changes", { event: "*", schema: "public", table: "leads" }, () => {
+        void queryClient.invalidateQueries({ queryKey: leadQueryKeys.list() });
+        void queryClient.invalidateQueries({ queryKey: dashboardQueryKeys.stats });
+      })
+      .subscribe();
+
+    return () => { void supabase.removeChannel(channel); };
+  }, [queryClient]);
+
+  return query;
 }
 
 export function useLead(id: string) {

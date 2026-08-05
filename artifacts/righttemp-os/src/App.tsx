@@ -29,6 +29,7 @@ import EstimatesPage from "@/pages/estimates";
 import PurchaseOrdersPage from "@/pages/purchase-orders";
 import SchedulePage from "@/pages/schedule";
 import InvoicesPage from "@/pages/invoices";
+import ServiceLandingPage from "@/pages/service-landing";
 const queryClient = new QueryClient();
 
 function AuthenticatedRouter() {
@@ -95,6 +96,10 @@ function Router() {
       subscription.unsubscribe();
     };
   }, []);
+
+  if (window.location.pathname.replace(/\/$/, "").endsWith("/service")) {
+    return <ServiceLandingPage />;
+  }
 
   if (isCheckingSession) {
     return (

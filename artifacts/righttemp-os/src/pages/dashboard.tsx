@@ -1,4 +1,5 @@
 import React from "react";
+import { PushNotifications } from "@/components/push-notifications";
 import { useDashboardStats } from "@/features/dashboard/dashboard.hooks";
 import {
   Card,
@@ -121,6 +122,7 @@ export default function DashboardPage() {
 
   return (
     <div className="p-4 md:p-8 max-w-[1600px] mx-auto space-y-6 md:space-y-8 animate-in fade-in duration-500">
+      <PushNotifications />
       {/* Hero */}
       <section className="relative overflow-hidden rounded-3xl border border-white/10 bg-black/40 p-6 md:p-8 righttemp-glow">
         <div className="absolute inset-0 pointer-events-none">

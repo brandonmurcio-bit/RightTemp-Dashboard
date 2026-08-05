@@ -45,7 +45,9 @@ export default defineConfig({
         ]
       },
       workbox: {
-        globPatterns: ['**/*.{js,css,html,ico,png,svg}']
+        mode: 'development',
+        globPatterns: ['**/*.{js,css,html,ico,png,svg}'],
+        importScripts: ['/push-sw.js']
       }
     }),
     ...(process.env.NODE_ENV !== 'production' &&
