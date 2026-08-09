@@ -5,12 +5,10 @@ import {
   Check,
   CheckCircle2,
   Clock3,
-  Flame,
   Mail,
   MapPin,
   Phone,
   ShieldCheck,
-  Snowflake,
   UserRound,
   Wrench,
 } from "lucide-react";
@@ -71,8 +69,8 @@ export default function ServiceLandingPage() {
     <main className="min-h-[100dvh] overflow-hidden bg-[#020205] text-white selection:bg-blue-600">
       <header className="relative border-b border-white/10 bg-black">
         <div className="mx-auto flex max-w-6xl items-center justify-between gap-4 px-5 py-6 sm:px-8">
-          <a href="#top" aria-label="RightTemp home" className="min-w-0 flex-[0_1_55%]">
-            <img src="/icons/righttemp-main-logo.png" alt="RightTemp Heating & Air Conditioning" className="w-full max-w-[13.5rem] object-contain sm:max-w-[21rem]" />
+          <a href="#top" aria-label="RightTemp home" className="min-w-0 flex-[0_1_62%]">
+            <img src="/icons/righttemp-header-logo.png" alt="RightTemp Heating & Air Conditioning" className="w-full max-w-[15.75rem] object-contain sm:max-w-[23rem]" />
           </a>
           <a href="#request-service" className="shrink-0 rounded-full border border-white/20 bg-gradient-to-r from-[#e80019] via-[#c60042] to-[#075de9] px-5 py-3 text-sm font-extrabold shadow-[0_0_28px_rgba(26,92,255,.22)] sm:px-7 sm:py-4 sm:text-base">
             Request service
@@ -85,18 +83,9 @@ export default function ServiceLandingPage() {
         <div className="pointer-events-none absolute inset-0 -z-10 overflow-hidden" aria-hidden="true">
           <div className="absolute right-[-8rem] top-16 h-[38rem] w-[38rem] rounded-full bg-blue-700/15 blur-[90px]" />
           <div className="absolute left-[-14rem] top-48 h-[34rem] w-[34rem] rounded-full bg-red-700/13 blur-[100px]" />
-          <div className="absolute right-[-7rem] top-20 opacity-[.28] sm:right-[-3rem] sm:top-24 sm:opacity-[.2]">
-            <div className="relative h-[29rem] w-[29rem] rotate-[-7deg] sm:h-[33rem] sm:w-[33rem]">
-              <div className="absolute left-[-7rem] top-[15rem] h-[2px] w-[29rem] -rotate-[31deg] bg-gradient-to-r from-transparent via-red-500/80 to-blue-500/50 shadow-[0_0_18px_rgba(255,20,40,.75)]" />
-              <div className="absolute left-[-2rem] top-[18rem] h-[3px] w-[32rem] -rotate-[28deg] bg-gradient-to-r from-red-600/30 via-fuchsia-500/65 to-blue-500/90 shadow-[0_0_22px_rgba(18,105,255,.9)]" />
-              <div className="absolute left-[5rem] top-[22rem] h-28 w-[27rem] -rotate-[24deg] bg-gradient-to-r from-red-600/15 via-purple-500/20 to-blue-500/35 blur-xl" />
-              <Flame className="absolute left-3 top-3 h-44 w-44 text-red-500 drop-shadow-[0_0_18px_rgba(255,20,45,.85)] sm:h-52 sm:w-52" strokeWidth={1.25} />
-              <Snowflake className="absolute bottom-10 right-9 h-52 w-52 text-blue-500 drop-shadow-[0_0_18px_rgba(15,90,255,.85)] sm:bottom-8 sm:right-8 sm:h-64 sm:w-64" strokeWidth={1.1} />
-              <div className="absolute left-24 top-32 h-48 w-48 rotate-45 border-l-[24px] border-t-[24px] border-blue-500 shadow-[-10px_-10px_25px_rgba(10,92,255,.42)] sm:left-28 sm:h-56 sm:w-56 sm:border-l-[28px] sm:border-t-[28px]" />
-              <div className="absolute left-[15rem] top-[14.4rem] grid grid-cols-2 gap-3 sm:left-[17.5rem] sm:top-[16.5rem]">
-                {Array.from({ length: 4 }).map((_, i) => <i key={i} className="h-7 w-7 bg-blue-500 shadow-[0_0_16px_rgba(15,98,255,.7)] sm:h-8 sm:w-8" />)}
-              </div>
-            </div>
+          <div className="absolute right-[-11rem] top-[15.5rem] w-[39rem] rotate-[-7deg] opacity-[.2] sm:right-[-4rem] sm:top-32 sm:w-[46rem] sm:opacity-[.17]">
+            <div className="absolute inset-0 bg-gradient-to-r from-red-600/35 via-purple-600/15 to-blue-600/35 blur-3xl" />
+            <img src="/icons/righttemp-hero-house.png" alt="" className="relative block w-full drop-shadow-[0_0_24px_rgba(25,90,255,.45)]" />
           </div>
         </div>
 
