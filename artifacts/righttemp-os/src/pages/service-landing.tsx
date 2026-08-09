@@ -11,7 +11,6 @@ import {
   Phone,
   ShieldCheck,
   Snowflake,
-  Star,
   UserRound,
   Wrench,
 } from "lucide-react";
@@ -73,7 +72,7 @@ export default function ServiceLandingPage() {
       <header className="relative border-b border-white/10 bg-black">
         <div className="mx-auto flex max-w-6xl items-center justify-between gap-4 px-5 py-6 sm:px-8">
           <a href="#top" aria-label="RightTemp home" className="min-w-0">
-            <img src="/icons/righttemp-main-logo.png" alt="RightTemp Heating & Air Conditioning" className="w-[13.5rem] object-contain sm:w-[19rem]" />
+            <img src="/icons/righttemp-main-logo.png" alt="RightTemp Heating & Air Conditioning" className="w-[16rem] object-contain sm:w-[21rem]" />
           </a>
           <a href="#request-service" className="shrink-0 rounded-full border border-white/20 bg-gradient-to-r from-[#e80019] via-[#c60042] to-[#075de9] px-5 py-3 text-sm font-extrabold shadow-[0_0_28px_rgba(26,92,255,.22)] sm:px-7 sm:py-4 sm:text-base">
             Request service
@@ -98,11 +97,10 @@ export default function ServiceLandingPage() {
         <div className="mx-auto max-w-6xl px-5 pb-20 pt-14 sm:px-8 sm:pt-20">
           <div className="max-w-3xl">
             <div className="inline-flex items-center gap-3 rounded-full border border-red-500/65 bg-black/65 px-4 py-2 text-[.7rem] font-extrabold uppercase tracking-[.22em] shadow-[inset_-35px_0_45px_rgba(15,93,255,.12)] sm:text-xs">
-              <BadgeCheck className="h-4 w-4 text-red-500" /> Licensed <i className="h-1 w-1 rounded-full bg-red-500" /> Bonded <i className="h-1 w-1 rounded-full bg-red-500" /> Insured
+              <BadgeCheck className="h-4 w-4 text-red-500" /> License No. 1157733 <i className="h-1 w-1 rounded-full bg-red-500" /> Bonded <i className="h-1 w-1 rounded-full bg-red-500" /> Insured
             </div>
             <h1 className="mt-8 text-[2.7rem] font-extrabold leading-[1.03] tracking-[-.055em] sm:text-7xl">
-              Your comfort fixed.<br />
-              <span className="bg-gradient-to-r from-[#ff171d] via-[#eb1d3b] to-[#126dff] bg-clip-text text-transparent">The right way.</span>
+              <span className="bg-gradient-to-r from-[#ff171d] via-[#b91f63] to-[#126dff] bg-clip-text text-transparent">True Comfort.</span>
             </h1>
             <p className="mt-7 max-w-2xl text-lg leading-8 text-zinc-300 sm:text-xl sm:leading-9">Straight answers, clean HVAC work, and options that fit your home—not a high-pressure sales pitch.</p>
             <div className="mt-8 flex flex-wrap gap-x-8 gap-y-4 text-sm font-bold text-zinc-100 sm:text-base">
@@ -163,9 +161,8 @@ export default function ServiceLandingPage() {
       </section>
 
       <footer className="bg-black px-5 py-9 text-center text-sm text-zinc-500">
-        <div className="mb-3 flex justify-center gap-1 text-amber-400" aria-label="Five star service">{Array.from({ length: 5 }).map((_, i) => <Star key={i} className="h-4 w-4 fill-current" />)}</div>
         <p className="font-bold text-zinc-200">RightTemp Heating & Air Conditioning</p>
-        <p className="mt-1">Serving the High Desert and surrounding communities.</p>
+        <p className="mt-1">License No. 1157733 · Bonded · Insured</p>
       </footer>
     </main>
   );
