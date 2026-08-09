@@ -1,6 +1,8 @@
 import React from "react";
 import { PushNotifications } from "@/components/push-notifications";
 import { useDashboardStats } from "@/features/dashboard/dashboard.hooks";
+import { useLeads } from "@/features/leads/leads.hooks";
+import { getViewedLeadIds } from "@/features/leads/lead-views";
 import {
   Card,
   CardContent,
@@ -10,6 +12,7 @@ import {
 } from "@/components/ui/card";
 import {
   Activity,
+  BellRing,
   ArrowUpRight,
   BadgeDollarSign,
   BriefcaseBusiness,
@@ -37,6 +40,7 @@ import {
 
 export default function DashboardPage() {
   const { data: stats, isLoading, isError } = useDashboardStats();
+  const { data: leads = [] } = useLeads();
 
   if (isLoading) {
     return (
@@ -72,6 +76,10 @@ export default function DashboardPage() {
   const proposalLeads = stats.leadsByStatus.proposal ?? 0;
   const newLeads = stats.leadsByStatus.new ?? 0;
   const lostLeads = stats.leadsByStatus.lost ?? 0;
+  const viewedLeadIds = getViewedLeadIds();
+  const unreadLeads = leads.filter(
+    (lead) => lead.status === "new" && !viewedLeadIds.has(lead.id),
+  );
 
   const money = new Intl.NumberFormat("en-US", {
     style: "currency",
@@ -154,6 +162,19 @@ export default function DashboardPage() {
               </p>
 
               <div className="grid grid-cols-2 gap-3">
+                {unreadLeads.length > 0 && (
+                  <Link href="/leads" className="group flex items-center gap-3 rounded-2xl border border-red-500/30 bg-red-500/[0.10] p-4 transition-all hover:border-red-500/50 hover:bg-red-500/[0.16]">
+                    <div className="relative rounded-xl bg-red-500/20 p-2.5">
+                      <BellRing className="h-5 w-5 text-red-400" />
+                      <span className="absolute -right-2 -top-2 grid h-5 min-w-5 place-items-center rounded-full bg-red-500 px-1 text-[10px] font-black text-white">{unreadLeads.length}</span>
+                    </div>
+                    <div className="min-w-0">
+                      <p className="text-sm font-semibold">New Lead Inbound</p>
+                      <p className="mt-0.5 truncate text-[11px] text-muted-foreground">{unreadLeads.length === 1 ? unreadLeads[0].name : `${unreadLeads.length} untouched leads`}</p>
+                      <p className="mt-2 text-[11px] font-bold text-red-400">View Leads <ArrowUpRight className="inline h-3 w-3" /></p>
+                    </div>
+                  </Link>
+                )}
                 <Link
                   href={stats.followUpsDue[0] ? `/leads/${stats.followUpsDue[0].id}` : "/leads"}
                   className="group flex items-center gap-3 rounded-2xl border border-red-500/20 bg-red-500/[0.06] p-4 hover:bg-red-500/[0.12] hover:border-red-500/35 transition-all"
