@@ -30,6 +30,7 @@ import PurchaseOrdersPage from "@/pages/purchase-orders";
 import SchedulePage from "@/pages/schedule";
 import InvoicesPage from "@/pages/invoices";
 import ServiceLandingPage from "@/pages/service-landing";
+import ReplacementLandingPage from "@/pages/replacement-landing";
 const queryClient = new QueryClient();
 
 function AuthenticatedRouter() {
@@ -99,6 +100,10 @@ function Router() {
 
   const pathname = window.location.pathname.replace(/\/$/, "") || "/";
 
+  if (pathname === "/replacement") {
+    return <ReplacementLandingPage />;
+  }
+
   if (pathname === "/" || pathname === "/service") {
     return <ServiceLandingPage />;
   }
@@ -122,16 +127,18 @@ function Router() {
 
 function App() {
   const pathname = window.location.pathname.replace(/\/$/, "") || "/";
-  const isPublicSite = pathname === "/" || pathname === "/service";
+  const isPublicSite = pathname === "/" || pathname === "/service" || pathname === "/replacement";
   const routerBase = pathname === "/app" || pathname.startsWith("/app/")
     ? "/app"
     : import.meta.env.BASE_URL.replace(/\/$/, "");
 
   useEffect(() => {
-    document.title = isPublicSite
-      ? "RightTemp Heating & Air Conditioning"
-      : "RightTemp OS";
-  }, [isPublicSite]);
+    document.title = pathname === "/replacement"
+      ? "AC Replacement Options | RightTemp Heating & Air Conditioning"
+      : isPublicSite
+        ? "RightTemp Heating & Air Conditioning"
+        : "RightTemp OS";
+  }, [isPublicSite, pathname]);
 
   return (
     <QueryClientProvider client={queryClient}>
