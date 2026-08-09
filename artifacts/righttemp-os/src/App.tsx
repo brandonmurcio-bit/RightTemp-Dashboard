@@ -97,7 +97,9 @@ function Router() {
     };
   }, []);
 
-  if (window.location.pathname.replace(/\/$/, "").endsWith("/service")) {
+  const pathname = window.location.pathname.replace(/\/$/, "") || "/";
+
+  if (pathname === "/" || pathname === "/service") {
     return <ServiceLandingPage />;
   }
 
@@ -119,7 +121,10 @@ function Router() {
 }
 
 function App() {
-  const routerBase = import.meta.env.BASE_URL.replace(/\/$/, "");
+  const pathname = window.location.pathname.replace(/\/$/, "") || "/";
+  const routerBase = pathname === "/app" || pathname.startsWith("/app/")
+    ? "/app"
+    : import.meta.env.BASE_URL.replace(/\/$/, "");
 
   return (
     <QueryClientProvider client={queryClient}>
