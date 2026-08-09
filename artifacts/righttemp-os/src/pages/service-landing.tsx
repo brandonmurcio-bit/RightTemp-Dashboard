@@ -1,5 +1,5 @@
 import { useMemo, useState } from "react";
-import { ArrowRight, BadgeCheck, CheckCircle2, Clock3, Flame, ShieldCheck, Snowflake, Star, Wrench } from "lucide-react";
+import { ArrowRight, BadgeCheck, CheckCircle2, Clock3, ShieldCheck, Star, Wrench } from "lucide-react";
 import { supabase } from "@/lib/supabase";
 
 const services = [
@@ -90,9 +90,8 @@ export default function ServiceLandingPage() {
       <header className="border-b border-slate-900/10 bg-[#f7f4ee]/95 backdrop-blur">
         <div className="mx-auto flex max-w-6xl items-center justify-between px-4 py-4 sm:px-6">
           <a href="#top" className="flex items-center gap-2" aria-label="RightTemp home">
-            <span className="relative grid h-10 w-10 place-items-center overflow-hidden rounded-xl bg-slate-950 text-white">
-              <Snowflake className="absolute left-1 h-6 w-6 text-blue-400" />
-              <Flame className="absolute right-1 h-6 w-6 text-red-500" />
+            <span className="grid h-11 w-11 place-items-center overflow-hidden rounded-xl bg-black p-1 shadow-sm">
+              <img src="/icons/righttemp-512.png" alt="" className="h-full w-full object-contain" />
             </span>
             <span className="text-xl font-extrabold tracking-[-0.04em]">RIGHT<span className="text-blue-600">TEMP</span></span>
           </a>

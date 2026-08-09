@@ -26,8 +26,8 @@ export function Layout({ children }: { children: React.ReactNode }) {
       {/* Desktop Sidebar */}
       <aside className="hidden md:flex flex-col w-64 bg-sidebar border-r border-sidebar-border text-sidebar-foreground p-4">
         <div className="flex items-center gap-3 px-2 py-4 mb-6">
-          <div className="w-8 h-8 rounded bg-primary flex items-center justify-center text-primary-foreground font-bold">
-            R
+          <div className="h-10 w-10 overflow-hidden rounded-xl bg-black p-1 shadow-sm">
+            <img src="/icons/righttemp-512.png" alt="" className="h-full w-full object-contain" />
           </div>
           <span className="font-bold text-lg tracking-tight">
             RightTemp OS
@@ -73,8 +73,8 @@ export function Layout({ children }: { children: React.ReactNode }) {
         {/* Mobile Header */}
         <header className="md:hidden flex items-center justify-between p-4 bg-sidebar text-sidebar-foreground border-b border-sidebar-border sticky top-0 z-20">
           <div className="flex items-center gap-2">
-            <div className="w-6 h-6 rounded bg-primary flex items-center justify-center text-primary-foreground font-bold text-xs">
-              R
+            <div className="h-8 w-8 overflow-hidden rounded-lg bg-black p-0.5 shadow-sm">
+              <img src="/icons/righttemp-512.png" alt="" className="h-full w-full object-contain" />
             </div>
             <span className="font-bold tracking-tight">RightTemp OS</span>
           </div>

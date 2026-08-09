@@ -27,20 +27,22 @@ export default defineConfig({
       manifest: {
         name: "RightTemp OS",
         short_name: "RightTemp",
-        start_url: "/",
+        start_url: "/app",
+        scope: "/",
         display: "standalone",
         theme_color: "#1c1e22",
         background_color: "#faf9f6",
         icons: [
           {
-            src: 'data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHZpZXdCb3g9IjAgMCA1MTIgNTEyIiBmaWxsPSIjZjU5ZTBiIj48cGF0aCBkPSJNMjU2IDUxMkEyNTYgMjU2IDAgMSAwIDI1NiAwYTI1NiAyNTYgMCAxIDAgMCA1MTJ6Ii8+PC9zdmc+',
+            src: '/icons/righttemp-192.png',
             sizes: '192x192',
-            type: 'image/svg+xml'
+            type: 'image/png'
           },
           {
-            src: 'data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHZpZXdCb3g9IjAgMCA1MTIgNTEyIiBmaWxsPSIjZjU5ZTBiIj48cGF0aCBkPSJNMjU2IDUxMkEyNTYgMjU2IDAgMSAwIDI1NiAwYTI1NiAyNTYgMCAxIDAgMCA1MTJ6Ii8+PC9zdmc+',
+            src: '/icons/righttemp-512.png',
             sizes: '512x512',
-            type: 'image/svg+xml'
+            type: 'image/png',
+            purpose: 'any maskable'
           }
         ]
       },
