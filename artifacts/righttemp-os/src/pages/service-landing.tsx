@@ -93,7 +93,13 @@ export default function ServiceLandingPage() {
             <span className="grid h-11 w-11 place-items-center overflow-hidden rounded-xl bg-black p-1 shadow-sm">
               <img src="/icons/righttemp-512.png" alt="" className="h-full w-full object-contain" />
             </span>
-            <span className="text-xl font-extrabold tracking-[-0.04em]">RIGHT<span className="text-blue-600">TEMP</span></span>
+            <span
+              className="text-[1.35rem] font-black italic leading-none tracking-[-0.055em]"
+              aria-label="RightTemp"
+            >
+              <span className="text-red-600">Right</span>
+              <span className="text-blue-600">Temp</span>
+            </span>
           </a>
           <a href="#request-service" className="rounded-full bg-slate-950 px-4 py-2.5 text-sm font-bold text-white shadow-sm hover:bg-blue-700">
             Request service
