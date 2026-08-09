@@ -1,7 +1,15 @@
 import { useState } from "react";
 import { useQueryClient } from "@tanstack/react-query";
 import { Link } from "wouter";
-import { Search, Plus, Filter, Phone, Mail } from "lucide-react";
+import {
+  ArrowRight,
+  BellRing,
+  Filter,
+  Mail,
+  Phone,
+  Plus,
+  Search,
+} from "lucide-react";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import * as z from "zod";
@@ -134,17 +142,25 @@ export default function LeadsPage() {
 
   const normalizedSearch = search.trim().toLowerCase();
 
-  const filteredLeads = leads.filter((lead) => {
-    const matchesSearch =
-      lead.name.toLowerCase().includes(normalizedSearch) ||
-      lead.email?.toLowerCase().includes(normalizedSearch) ||
-      lead.phone.toLowerCase().includes(normalizedSearch);
+  const newLeads = leads.filter((lead) => lead.status === "new");
 
-    const matchesStatus =
-      statusFilter === "all" || lead.status === statusFilter;
+  const filteredLeads = leads
+    .filter((lead) => {
+      const matchesSearch =
+        lead.name.toLowerCase().includes(normalizedSearch) ||
+        lead.email?.toLowerCase().includes(normalizedSearch) ||
+        lead.phone.toLowerCase().includes(normalizedSearch);
 
-    return matchesSearch && matchesStatus;
-  });
+      const matchesStatus =
+        statusFilter === "all" || lead.status === statusFilter;
+
+      return matchesSearch && matchesStatus;
+    })
+    .sort((a, b) => {
+      if (a.status === "new" && b.status !== "new") return -1;
+      if (a.status !== "new" && b.status === "new") return 1;
+      return new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime();
+    });
 
   return (
     <div className="p-6 md:p-8 max-w-7xl mx-auto space-y-6 animate-in fade-in duration-300">
@@ -304,6 +320,40 @@ export default function LeadsPage() {
         </Dialog>
       </div>
 
+      {!isLoading && newLeads.length > 0 && (
+        <section className="overflow-hidden rounded-2xl border-2 border-blue-500 bg-blue-600 text-white shadow-lg shadow-blue-600/20">
+          <div className="flex flex-col gap-4 p-5 sm:flex-row sm:items-center sm:justify-between">
+            <div className="flex items-start gap-4">
+              <span className="relative grid h-12 w-12 shrink-0 place-items-center rounded-full bg-white/15">
+                <span className="absolute -right-1 -top-1 grid h-6 min-w-6 place-items-center rounded-full bg-red-500 px-1 text-xs font-black ring-2 ring-blue-600">
+                  {newLeads.length}
+                </span>
+                <BellRing className="h-6 w-6" />
+              </span>
+              <div>
+                <p className="text-xs font-bold uppercase tracking-[.18em] text-blue-100">
+                  Action required
+                </p>
+                <h2 className="mt-1 text-xl font-black">
+                  {newLeads.length === 1
+                    ? "1 new lead is waiting"
+                    : `${newLeads.length} new leads are waiting`}
+                </h2>
+                <p className="mt-1 text-sm text-blue-100">
+                  Open the newest request and contact them before the lead goes cold.
+                </p>
+              </div>
+            </div>
+            <Link href={`/leads/${newLeads[0].id}`}>
+              <Button className="min-h-12 w-full gap-2 bg-white px-5 font-extrabold text-blue-700 hover:bg-blue-50 sm:w-auto">
+                Open newest lead
+                <ArrowRight className="h-4 w-4" />
+              </Button>
+            </Link>
+          </div>
+        </section>
+      )}
+
       <div className="flex flex-col sm:flex-row gap-3">
         <div className="relative flex-1">
           <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
@@ -378,7 +428,11 @@ export default function LeadsPage() {
                 {filteredLeads.map((lead) => (
                   <tr
                     key={lead.id}
-                    className="border-b border-border last:border-0 hover:bg-muted/20 transition-colors group"
+                    className={`border-b last:border-0 transition-colors group ${
+                      lead.status === "new"
+                        ? "border-blue-200 bg-blue-50/90 hover:bg-blue-100/80 dark:border-blue-900 dark:bg-blue-950/30 dark:hover:bg-blue-950/50"
+                        : "border-border hover:bg-muted/20"
+                    }`}
                   >
                     <td className="px-6 py-4">
                       <Link
@@ -386,7 +440,14 @@ export default function LeadsPage() {
                         className="inline-block group/lead"
                       >
                         <div className="font-medium text-foreground group-hover/lead:text-primary group-hover/lead:underline transition-colors">
-                          {lead.name}
+                          <span className="inline-flex items-center gap-2">
+                            {lead.name}
+                            {lead.status === "new" && (
+                              <span className="rounded-full bg-red-500 px-2 py-0.5 text-[10px] font-black uppercase tracking-wider text-white">
+                                New
+                              </span>
+                            )}
+                          </span>
                         </div>
 
                         <div className="text-muted-foreground text-xs truncate max-w-[150px]">
@@ -442,11 +503,14 @@ export default function LeadsPage() {
                     <td className="px-6 py-4 text-right">
                       <Link href={`/leads/${lead.id}`}>
                         <Button
-                          variant="ghost"
+                          variant={lead.status === "new" ? "default" : "ghost"}
                           size="sm"
-                          className="h-8 px-3"
+                          className={`h-9 gap-1.5 px-3 ${
+                            lead.status === "new" ? "bg-blue-600 font-bold text-white hover:bg-blue-700" : ""
+                          }`}
                         >
-                          View
+                          {lead.status === "new" ? "Open lead" : "View"}
+                          {lead.status === "new" && <ArrowRight className="h-3.5 w-3.5" />}
                         </Button>
                       </Link>
                     </td>
