@@ -83,10 +83,6 @@ export default function ServiceLandingPage() {
         <div className="pointer-events-none absolute inset-0 -z-10 overflow-hidden" aria-hidden="true">
           <div className="absolute right-[-8rem] top-16 h-[38rem] w-[38rem] rounded-full bg-blue-700/15 blur-[90px]" />
           <div className="absolute left-[-14rem] top-48 h-[34rem] w-[34rem] rounded-full bg-red-700/13 blur-[100px]" />
-          <div className="absolute right-[-11rem] top-[15.5rem] w-[39rem] rotate-[-7deg] opacity-[.2] sm:right-[-4rem] sm:top-32 sm:w-[46rem] sm:opacity-[.17]">
-            <div className="absolute inset-0 bg-gradient-to-r from-red-600/35 via-purple-600/15 to-blue-600/35 blur-3xl" />
-            <img src="/icons/righttemp-hero-house.png" alt="" className="relative block w-full drop-shadow-[0_0_24px_rgba(25,90,255,.45)]" />
-          </div>
         </div>
 
         <div className="mx-auto max-w-6xl px-5 pb-20 pt-14 sm:px-8 sm:pt-20">
