@@ -122,9 +122,16 @@ function Router() {
 
 function App() {
   const pathname = window.location.pathname.replace(/\/$/, "") || "/";
+  const isPublicSite = pathname === "/" || pathname === "/service";
   const routerBase = pathname === "/app" || pathname.startsWith("/app/")
     ? "/app"
     : import.meta.env.BASE_URL.replace(/\/$/, "");
+
+  useEffect(() => {
+    document.title = isPublicSite
+      ? "RightTemp Heating & Air Conditioning"
+      : "RightTemp OS";
+  }, [isPublicSite]);
 
   return (
     <QueryClientProvider client={queryClient}>

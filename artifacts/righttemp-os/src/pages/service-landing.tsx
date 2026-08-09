@@ -87,21 +87,16 @@ export default function ServiceLandingPage() {
 
   return (
     <main className="min-h-[100dvh] overflow-x-hidden bg-[#f7f4ee] text-slate-950 selection:bg-blue-600 selection:text-white">
-      <header className="border-b border-slate-900/10 bg-[#f7f4ee]/95 backdrop-blur">
-        <div className="mx-auto flex max-w-6xl items-center justify-between px-4 py-4 sm:px-6">
-          <a href="#top" className="flex items-center gap-2" aria-label="RightTemp home">
-            <span className="grid h-11 w-11 place-items-center overflow-hidden rounded-xl bg-black p-1 shadow-sm">
-              <img src="/icons/righttemp-512.png" alt="" className="h-full w-full object-contain" />
-            </span>
-            <span
-              className="text-[1.35rem] font-black italic leading-none tracking-[-0.055em]"
-              aria-label="RightTemp"
-            >
-              <span className="text-red-600">Right</span>
-              <span className="text-blue-600">Temp</span>
-            </span>
+      <header className="border-b border-white/10 bg-black">
+        <div className="mx-auto flex max-w-6xl items-center justify-between gap-3 px-4 py-3 sm:px-6">
+          <a href="#top" className="min-w-0" aria-label="RightTemp home">
+            <img
+              src="/icons/righttemp-main-logo.png"
+              alt="RightTemp Heating & Air Conditioning"
+              className="h-auto w-[11.5rem] max-w-full object-contain sm:w-[15rem]"
+            />
           </a>
-          <a href="#request-service" className="rounded-full bg-slate-950 px-4 py-2.5 text-sm font-bold text-white shadow-sm hover:bg-blue-700">
+          <a href="#request-service" className="shrink-0 rounded-full bg-white px-4 py-2.5 text-sm font-bold text-slate-950 shadow-sm transition hover:bg-blue-600 hover:text-white">
             Request service
           </a>
         </div>
