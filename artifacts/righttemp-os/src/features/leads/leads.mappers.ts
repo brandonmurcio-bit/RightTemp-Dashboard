@@ -15,6 +15,12 @@ export function mapLeadRowToLead(row: LeadRow): Lead {
           ? "website"
           : (row.source ?? "other"),
     serviceType: row.service_type,
+    zip: row.zip,
+    urgency: row.urgency,
+    notes: row.notes,
+    attributionSource: row.attribution_source,
+    attributionCampaign: row.attribution_campaign,
+    landingPage: row.landing_page,
     createdAt: row.created_at,
 
     estimatePrice: row.estimate_price,

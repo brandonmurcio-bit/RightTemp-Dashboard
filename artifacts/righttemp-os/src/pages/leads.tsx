@@ -394,6 +394,11 @@ export default function LeadsPage() {
                             {lead.status === "new" && !viewedLeadIds.has(lead.id) && (
                               <span className="rounded-full bg-red-500 px-2 py-0.5 text-[10px] font-black uppercase tracking-wider text-white">New</span>
                             )}
+                            {lead.serviceType?.toLowerCase() === "system replacement" && (
+                              <span className="rounded-full bg-primary/10 px-2 py-0.5 text-[10px] font-black uppercase tracking-wider text-primary">
+                                Replacement
+                              </span>
+                            )}
                           </span>
                         </div>
 

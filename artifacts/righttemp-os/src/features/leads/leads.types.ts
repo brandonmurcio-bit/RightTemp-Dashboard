@@ -13,6 +13,12 @@ export interface Lead {
   status: LeadStatus;
   source: LeadSource;
   serviceType: string | null;
+  zip: string | null;
+  urgency: string | null;
+  notes: string | null;
+  attributionSource: string | null;
+  attributionCampaign: string | null;
+  landingPage: string | null;
   createdAt: string;
 
   estimatePrice: number | null;
@@ -55,6 +61,12 @@ export interface LeadRow {
     | "other"
     | null;
   service_type: string | null;
+  zip: string | null;
+  urgency: string | null;
+  notes: string | null;
+  attribution_source: string | null;
+  attribution_campaign: string | null;
+  landing_page: string | null;
   created_at: string;
   estimate_price: number | null;
   equipment: string | null;

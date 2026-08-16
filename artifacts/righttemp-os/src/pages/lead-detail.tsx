@@ -12,6 +12,7 @@ import {
   Trash2,
   UserRoundCheck,
   FileText,
+  Home,
 } from "lucide-react";
 
 import {
@@ -100,6 +101,31 @@ const pipelineStages: LeadStatus[] = [
   "proposal",
   "won",
 ];
+
+const replacementLabels: Record<string, string> = {
+  "Property owner": "Property Owner",
+  "System age": "System Age",
+  "Current problem": "Current Problem",
+  "Replacement timeline": "Timeline",
+  "Financing interest": "Financing",
+  "Best contact time": "Best Contact Time",
+};
+
+function getReplacementQualification(notes: string | null) {
+  if (!notes?.startsWith("REPLACEMENT QUALIFICATION")) return [];
+
+  return notes
+    .split("\n")
+    .slice(1)
+    .map((line) => {
+      const separator = line.indexOf(":");
+      if (separator < 0) return null;
+      const key = line.slice(0, separator).trim();
+      const value = line.slice(separator + 1).trim();
+      return { label: replacementLabels[key] ?? key, value };
+    })
+    .filter((item): item is { label: string; value: string } => Boolean(item));
+}
 
 function getLeadFormValues(lead: Lead): LeadUpdateValues {
   return {
@@ -335,6 +361,10 @@ export default function LeadDetailPage() {
     currentStageIndex >= 0 && currentStageIndex < pipelineStages.length - 1
       ? pipelineStages[currentStageIndex + 1]
       : null;
+  const replacementQualification = getReplacementQualification(lead.notes);
+  const isReplacementLead =
+    lead.serviceType?.toLowerCase() === "system replacement" ||
+    replacementQualification.length > 0;
 
   return (
     <div className="max-w-4xl mx-auto p-4 md:p-8 space-y-6 animate-in fade-in duration-300">
@@ -489,6 +519,50 @@ export default function LeadDetailPage() {
           </div>
         </CardContent>
       </Card>
+
+      {isReplacementLead && (
+        <Card className="overflow-hidden border-primary/30">
+          <CardHeader className="bg-primary/5">
+            <div className="flex items-center gap-3">
+              <div className="rounded-lg bg-primary/10 p-2 text-primary">
+                <Home className="h-5 w-5" />
+              </div>
+              <div>
+                <CardTitle>Replacement Lead</CardTitle>
+                <CardDescription>
+                  Qualification answers submitted through the replacement funnel.
+                </CardDescription>
+              </div>
+            </div>
+          </CardHeader>
+          <CardContent className="p-4 md:p-6">
+            {replacementQualification.length > 0 ? (
+              <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+                {replacementQualification.map((item) => (
+                  <div key={item.label} className="rounded-lg border bg-muted/20 p-3">
+                    <div className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+                      {item.label}
+                    </div>
+                    <div className="mt-1 font-medium text-foreground">{item.value}</div>
+                  </div>
+                ))}
+              </div>
+            ) : (
+              <p className="text-sm text-muted-foreground">
+                This lead requested a system replacement but has no qualification answers.
+              </p>
+            )}
+
+            {(lead.zip || lead.attributionSource || lead.attributionCampaign) && (
+              <div className="mt-4 flex flex-wrap gap-2 border-t pt-4 text-xs text-muted-foreground">
+                {lead.zip && <span>ZIP: {lead.zip}</span>}
+                {lead.attributionSource && <span>Source: {lead.attributionSource}</span>}
+                {lead.attributionCampaign && <span>Campaign: {lead.attributionCampaign}</span>}
+              </div>
+            )}
+          </CardContent>
+        </Card>
+      )}
 
       {form.watch("status") === "proposal" && (
         <Card>
