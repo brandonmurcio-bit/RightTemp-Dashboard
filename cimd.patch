@@ -1,0 +1,46 @@
+From d31084516faa0a797a2595e12e5491e741054701 Mon Sep 17 00:00:00 2001
+From: OpenAI Codex <codex@openai.com>
+Date: Sun, 16 Aug 2026 20:30:07 +0000
+Subject: [PATCH] fix: advertise OAuth CIMD support
+
+---
+ artifacts/api-server/src/oauth.ts                              | 3 ++-
+ .../public/.well-known/oauth-authorization-server/api          | 1 +
+ 2 files changed, 3 insertions(+), 1 deletion(-)
+
+diff --git a/artifacts/api-server/src/oauth.ts b/artifacts/api-server/src/oauth.ts
+index 774d856..af9e3c1 100644
+--- a/artifacts/api-server/src/oauth.ts
++++ b/artifacts/api-server/src/oauth.ts
+@@ -71,6 +71,7 @@ oauth.get("/.well-known/oauth-authorization-server", (req, res) => {
+     issuer: `${base}/api`,
+     authorization_endpoint: `${base}/api/oauth/authorize`,
+     token_endpoint: `${base}/api/oauth/token`,
++    client_id_metadata_document_supported: true,
+     response_types_supported: ["code"],
+     grant_types_supported: ["authorization_code"],
+     code_challenge_methods_supported: ["S256"],
+@@ -87,7 +88,7 @@ oauth.get("/oauth/authorize", (req, res) => {
+ 
+ oauth.post("/oauth/authorize", (req, res) => {
+   const { client_id, redirect_uri, state, code_challenge, code_challenge_method, resource, password } = req.body as Record<string, string>;
+-  if (!passwordMatches(password) || !allowedRedirect(redirect_uri) || code_challenge_method !== "S256" || !code_challenge) {
++  if (!passwordMatches(password) || !allowedRedirect(client_id) || !allowedRedirect(redirect_uri) || code_challenge_method !== "S256" || !code_challenge) {
+     res.status(400).send("Authorization failed.");
+     return;
+   }
+diff --git a/artifacts/righttemp-os/public/.well-known/oauth-authorization-server/api b/artifacts/righttemp-os/public/.well-known/oauth-authorization-server/api
+index 3be0f1e..f43267b 100644
+--- a/artifacts/righttemp-os/public/.well-known/oauth-authorization-server/api
++++ b/artifacts/righttemp-os/public/.well-known/oauth-authorization-server/api
+@@ -2,6 +2,7 @@
+   "issuer": "https://right-temp-dashboard--brandonmurcio.replit.app/api",
+   "authorization_endpoint": "https://right-temp-dashboard--brandonmurcio.replit.app/api/oauth/authorize",
+   "token_endpoint": "https://right-temp-dashboard--brandonmurcio.replit.app/api/oauth/token",
++  "client_id_metadata_document_supported": true,
+   "response_types_supported": ["code"],
+   "grant_types_supported": ["authorization_code"],
+   "code_challenge_methods_supported": ["S256"],
+-- 
+2.51.1
+
