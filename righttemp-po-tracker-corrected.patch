@@ -1,0 +1,675 @@
+From 60ec98f13735aac7564aaeab278e334ed34ae0a1 Mon Sep 17 00:00:00 2001
+From: Codex <noreply@openai.com>
+Date: Sun, 2 Aug 2026 19:50:56 +0000
+Subject: [PATCH] feat: add PO tracking and lead stage notes
+
+---
+ artifacts/righttemp-os/src/App.tsx            |  2 +
+ .../features/customers/customers.mappers.ts   |  3 +-
+ .../customers/customers.repository.ts         |  1 +
+ .../src/features/customers/customers.types.ts |  4 +-
+ .../src/features/jobs/jobs.mappers.ts         |  1 +
+ .../src/features/jobs/jobs.repository.ts      |  1 +
+ .../src/features/jobs/jobs.types.ts           |  2 +
+ .../src/features/leads/leads.mappers.ts       |  4 +
+ .../src/features/leads/leads.repository.ts    |  2 +
+ .../src/features/leads/leads.types.ts         |  8 ++
+ .../purchase-orders/purchase-orders.hooks.ts  | 16 ++++
+ .../purchase-orders.repository.ts             | 42 ++++++++++
+ .../purchase-orders/purchase-orders.types.ts  | 19 +++++
+ .../src/pages/customer-detail.tsx             | 47 ++++++++++-
+ .../righttemp-os/src/pages/job-detail.tsx     |  2 +-
+ artifacts/righttemp-os/src/pages/jobs.tsx     | 12 ++-
+ .../righttemp-os/src/pages/lead-detail.tsx    | 36 +++++++++
+ .../src/pages/purchase-orders.tsx             | 79 +++++++++++++++++++
+ ...0_add_po_tracking_and_lead_stage_notes.sql | 67 ++++++++++++++++
+ 19 files changed, 337 insertions(+), 11 deletions(-)
+ create mode 100644 artifacts/righttemp-os/src/features/purchase-orders/purchase-orders.hooks.ts
+ create mode 100644 artifacts/righttemp-os/src/features/purchase-orders/purchase-orders.repository.ts
+ create mode 100644 artifacts/righttemp-os/src/features/purchase-orders/purchase-orders.types.ts
+ create mode 100644 artifacts/righttemp-os/src/pages/purchase-orders.tsx
+ create mode 100644 supabase/migrations/20260802194800_add_po_tracking_and_lead_stage_notes.sql
+
+diff --git a/artifacts/righttemp-os/src/App.tsx b/artifacts/righttemp-os/src/App.tsx
+index d41d944..e1fc6bd 100644
+--- a/artifacts/righttemp-os/src/App.tsx
++++ b/artifacts/righttemp-os/src/App.tsx
+@@ -26,6 +26,7 @@ import JobsPage from "@/pages/jobs";
+ import JobDetailPage from "@/pages/job-detail";
+ import NewJobPage from "@/pages/new-job";
+ import EstimatesPage from "@/pages/estimates";
++import PurchaseOrdersPage from "@/pages/purchase-orders";
+ const queryClient = new QueryClient();
+ 
+ function AuthenticatedRouter() {
+@@ -46,6 +47,7 @@ function AuthenticatedRouter() {
+         <Route path="/jobs/:id" component={JobDetailPage} />
+ 
+         <Route path="/estimates" component={EstimatesPage} />
++        <Route path="/purchase-orders" component={PurchaseOrdersPage} />
+ 
+         <Route component={NotFound} />
+       </Switch>
+diff --git a/artifacts/righttemp-os/src/features/customers/customers.mappers.ts b/artifacts/righttemp-os/src/features/customers/customers.mappers.ts
+index 61ce96d..d22b319 100644
+--- a/artifacts/righttemp-os/src/features/customers/customers.mappers.ts
++++ b/artifacts/righttemp-os/src/features/customers/customers.mappers.ts
+@@ -22,6 +22,7 @@ export function mapCustomerRowToCustomer(
+     notes: row.notes,
+     createdAt: row.created_at,
+     updatedAt: row.updated_at,
++    customerNumber: row.customer_number,
+   };
+ }
+ 
+@@ -42,4 +43,4 @@ export function mapCustomerInputToInsert(
+     service_type: input.serviceType,
+     notes: input.notes || null,
+   };
+-}
+\ No newline at end of file
++}
+diff --git a/artifacts/righttemp-os/src/features/customers/customers.repository.ts b/artifacts/righttemp-os/src/features/customers/customers.repository.ts
+index 7ea81c1..5ee69a6 100644
+--- a/artifacts/righttemp-os/src/features/customers/customers.repository.ts
++++ b/artifacts/righttemp-os/src/features/customers/customers.repository.ts
+@@ -21,6 +21,7 @@ const customerSelect = `
+   notes,
+   created_at,
+   updated_at
++  ,customer_number
+ `;
+ 
+ function normalizeError(error: unknown, fallbackMessage: string): Error {
+diff --git a/artifacts/righttemp-os/src/features/customers/customers.types.ts b/artifacts/righttemp-os/src/features/customers/customers.types.ts
+index f9b48f5..62b4a1e 100644
+--- a/artifacts/righttemp-os/src/features/customers/customers.types.ts
++++ b/artifacts/righttemp-os/src/features/customers/customers.types.ts
+@@ -22,6 +22,7 @@ export interface Customer {
+   notes: string | null;
+   createdAt: string;
+   updatedAt: string;
++  customerNumber: string;
+ }
+ 
+ export interface CustomerInput {
+@@ -52,6 +53,7 @@ export interface CustomerRow {
+   notes: string | null;
+   created_at: string;
+   updated_at: string;
++  customer_number: string;
+ }
+ 
+ export interface CustomerInsert {
+@@ -66,4 +68,4 @@ export interface CustomerInsert {
+   status: CustomerStatus;
+   service_type: CustomerServiceType;
+   notes: string | null;
+-}
+\ No newline at end of file
++}
+diff --git a/artifacts/righttemp-os/src/features/jobs/jobs.mappers.ts b/artifacts/righttemp-os/src/features/jobs/jobs.mappers.ts
+index e17fef9..d2e5d83 100644
+--- a/artifacts/righttemp-os/src/features/jobs/jobs.mappers.ts
++++ b/artifacts/righttemp-os/src/features/jobs/jobs.mappers.ts
+@@ -18,5 +18,6 @@ export function mapJobRowToJob(row: JobRow): Job {
+     notes: row.notes,
+     createdAt: row.created_at,
+     updatedAt: row.updated_at,
++    poNumber: row.po_number,
+   };
+ }
+diff --git a/artifacts/righttemp-os/src/features/jobs/jobs.repository.ts b/artifacts/righttemp-os/src/features/jobs/jobs.repository.ts
+index bf5ed45..691c542 100644
+--- a/artifacts/righttemp-os/src/features/jobs/jobs.repository.ts
++++ b/artifacts/righttemp-os/src/features/jobs/jobs.repository.ts
+@@ -7,6 +7,7 @@ const jobSelect = `
+   id, organization_id, lead_id, customer_id, title, description,
+   service_type, status, priority, scheduled_start, scheduled_end,
+   completed_at, assigned_to, notes, created_at, updated_at
++  ,po_number
+ `;
+ 
+ export async function getJobs(): Promise<Job[]> {
+diff --git a/artifacts/righttemp-os/src/features/jobs/jobs.types.ts b/artifacts/righttemp-os/src/features/jobs/jobs.types.ts
+index a7c5677..d2d0828 100644
+--- a/artifacts/righttemp-os/src/features/jobs/jobs.types.ts
++++ b/artifacts/righttemp-os/src/features/jobs/jobs.types.ts
+@@ -19,6 +19,7 @@ export interface Job {
+   notes: string | null;
+   createdAt: string;
+   updatedAt: string;
++  poNumber: string;
+ }
+ 
+ export interface JobRow {
+@@ -38,6 +39,7 @@ export interface JobRow {
+   notes: string | null;
+   created_at: string;
+   updated_at: string;
++  po_number: string;
+ }
+ 
+ export interface JobInput {
+diff --git a/artifacts/righttemp-os/src/features/leads/leads.mappers.ts b/artifacts/righttemp-os/src/features/leads/leads.mappers.ts
+index badc7f5..0c76d78 100644
+--- a/artifacts/righttemp-os/src/features/leads/leads.mappers.ts
++++ b/artifacts/righttemp-os/src/features/leads/leads.mappers.ts
+@@ -20,6 +20,8 @@ export function mapLeadRowToLead(row: LeadRow): Lead {
+     estimatePrice: row.estimate_price,
+     equipment: row.equipment,
+     scopeOfWork: row.scope_of_work,
++    contactedNotes: row.contacted_notes,
++    qualifiedNotes: row.qualified_notes,
+   };
+ }
+ 
+@@ -44,5 +46,7 @@ export function mapLeadInputToInsert(
+     estimate_price: input.estimatePrice ?? null,
+     equipment: input.equipment ?? null,
+     scope_of_work: input.scopeOfWork ?? null,
++    contacted_notes: input.contactedNotes ?? null,
++    qualified_notes: input.qualifiedNotes ?? null,
+   };
+ }
+diff --git a/artifacts/righttemp-os/src/features/leads/leads.repository.ts b/artifacts/righttemp-os/src/features/leads/leads.repository.ts
+index 057e85f..bb66771 100644
+--- a/artifacts/righttemp-os/src/features/leads/leads.repository.ts
++++ b/artifacts/righttemp-os/src/features/leads/leads.repository.ts
+@@ -16,6 +16,8 @@ const leadSelect = `
+   estimate_price,
+   equipment,
+   scope_of_work,
++  contacted_notes,
++  qualified_notes,
+   created_at
+ `;
+ 
+diff --git a/artifacts/righttemp-os/src/features/leads/leads.types.ts b/artifacts/righttemp-os/src/features/leads/leads.types.ts
+index e657a65..a75b520 100644
+--- a/artifacts/righttemp-os/src/features/leads/leads.types.ts
++++ b/artifacts/righttemp-os/src/features/leads/leads.types.ts
+@@ -18,6 +18,8 @@ export interface Lead {
+   estimatePrice: number | null;
+   equipment: string | null;
+   scopeOfWork: string | null;
++  contactedNotes: string | null;
++  qualifiedNotes: string | null;
+ }
+ 
+ export interface LeadInput {
+@@ -31,6 +33,8 @@ export interface LeadInput {
+   estimatePrice?: number;
+   equipment?: string;
+   scopeOfWork?: string;
++  contactedNotes?: string;
++  qualifiedNotes?: string;
+ }
+ 
+ export interface LeadRow {
+@@ -55,6 +59,8 @@ export interface LeadRow {
+   estimate_price: number | null;
+   equipment: string | null;
+   scope_of_work: string | null;
++  contacted_notes: string | null;
++  qualified_notes: string | null;
+ }
+ 
+ export interface LeadInsert {
+@@ -69,4 +75,6 @@ export interface LeadInsert {
+   estimate_price: number | null;
+   equipment: string | null;
+   scope_of_work: string | null;
++  contacted_notes: string | null;
++  qualified_notes: string | null;
+ }
+diff --git a/artifacts/righttemp-os/src/features/purchase-orders/purchase-orders.hooks.ts b/artifacts/righttemp-os/src/features/purchase-orders/purchase-orders.hooks.ts
+new file mode 100644
+index 0000000..a1ebeba
+--- /dev/null
++++ b/artifacts/righttemp-os/src/features/purchase-orders/purchase-orders.hooks.ts
+@@ -0,0 +1,16 @@
++import { useMutation, useQuery } from "@tanstack/react-query";
++import { getPurchaseOrders, updatePurchaseOrder } from "./purchase-orders.repository";
++import type { PurchaseOrderUpdate } from "./purchase-orders.types";
++
++export const purchaseOrderQueryKeys = { all: ["purchase-orders"] as const };
++
++export function usePurchaseOrders() {
++  return useQuery({ queryKey: purchaseOrderQueryKeys.all, queryFn: getPurchaseOrders });
++}
++
++export function useUpdatePurchaseOrder() {
++  return useMutation({
++    mutationFn: ({ id, input }: { id: string; input: PurchaseOrderUpdate }) =>
++      updatePurchaseOrder(id, input),
++  });
++}
+diff --git a/artifacts/righttemp-os/src/features/purchase-orders/purchase-orders.repository.ts b/artifacts/righttemp-os/src/features/purchase-orders/purchase-orders.repository.ts
+new file mode 100644
+index 0000000..f6604e2
+--- /dev/null
++++ b/artifacts/righttemp-os/src/features/purchase-orders/purchase-orders.repository.ts
+@@ -0,0 +1,42 @@
++import { getCurrentOrganizationId } from "@/lib/get-current-organization-id";
++import { supabase } from "@/lib/supabase";
++import type { PurchaseOrder, PurchaseOrderUpdate } from "./purchase-orders.types";
++
++export async function getPurchaseOrders(): Promise<PurchaseOrder[]> {
++  const organizationId = await getCurrentOrganizationId();
++  const jobsResult = await supabase
++    .from("jobs")
++    .select("id, title, po_number, po_status, po_vendor, po_amount, po_notes, created_at, customers!jobs_customer_id_fkey(name)")
++    .eq("organization_id", organizationId);
++  if (jobsResult.error) throw new Error(`Unable to load job POs: ${jobsResult.error.message}`);
++  const jobOrders: PurchaseOrder[] = (jobsResult.data ?? []).map((row) => {
++    const relation = Array.isArray(row.customers) ? row.customers[0] : row.customers;
++    return {
++      id: row.id,
++      poNumber: row.po_number,
++      title: row.title,
++      customerName: relation?.name ?? "Unknown customer",
++      status: row.po_status,
++      vendor: row.po_vendor,
++      amount: row.po_amount === null ? null : Number(row.po_amount),
++      notes: row.po_notes,
++      createdAt: row.created_at,
++    };
++  });
++  return jobOrders.sort((a, b) => b.createdAt.localeCompare(a.createdAt));
++}
++
++export async function updatePurchaseOrder(id: string, input: PurchaseOrderUpdate): Promise<void> {
++  const organizationId = await getCurrentOrganizationId();
++  const { error } = await supabase
++    .from("jobs")
++    .update({
++      po_status: input.status,
++      po_vendor: input.vendor || null,
++      po_amount: input.amount ?? null,
++      po_notes: input.notes || null,
++    })
++    .eq("id", id)
++    .eq("organization_id", organizationId);
++  if (error) throw new Error(`Unable to update PO: ${error.message}`);
++}
+diff --git a/artifacts/righttemp-os/src/features/purchase-orders/purchase-orders.types.ts b/artifacts/righttemp-os/src/features/purchase-orders/purchase-orders.types.ts
+new file mode 100644
+index 0000000..d434751
+--- /dev/null
++++ b/artifacts/righttemp-os/src/features/purchase-orders/purchase-orders.types.ts
+@@ -0,0 +1,19 @@
++export type PoStatus = "pending" | "ordered" | "received" | "closed" | "cancelled";
++export interface PurchaseOrder {
++  id: string;
++  poNumber: string;
++  title: string;
++  customerName: string;
++  status: PoStatus;
++  vendor: string | null;
++  amount: number | null;
++  notes: string | null;
++  createdAt: string;
++}
++
++export interface PurchaseOrderUpdate {
++  status: PoStatus;
++  vendor?: string;
++  amount?: number;
++  notes?: string;
++}
+diff --git a/artifacts/righttemp-os/src/pages/customer-detail.tsx b/artifacts/righttemp-os/src/pages/customer-detail.tsx
+index 50f6eb7..992bba9 100644
+--- a/artifacts/righttemp-os/src/pages/customer-detail.tsx
++++ b/artifacts/righttemp-os/src/pages/customer-detail.tsx
+@@ -24,6 +24,7 @@ import {
+   FileText,
+   Download,
+   Upload,
++  ClipboardList,
+ } from "lucide-react";
+ import { Button } from "@/components/ui/button";
+ import { Input } from "@/components/ui/input";
+@@ -62,6 +63,7 @@ import {
+   useUploadCustomerDocument,
+ } from "@/features/customer-documents/customer-documents.hooks";
+ import { openCustomerDocument } from "@/features/customer-documents/customer-documents.repository";
++import { useJobs } from "@/features/jobs/jobs.hooks";
+ 
+ const customerUpdateSchema = z.object({
+   name: z.string().min(1, "Name is required"),
+@@ -95,6 +97,7 @@ export default function CustomerDetailPage() {
+   const { data: documents, isLoading: documentsLoading } = useCustomerDocuments(id);
+   const uploadDocument = useUploadCustomerDocument();
+   const deleteDocument = useDeleteCustomerDocument();
++  const { data: jobs, isLoading: jobsLoading } = useJobs();
+   const [selectedFile, setSelectedFile] = useState<File | null>(null);
+ 
+   const form = useForm<CustomerUpdateValues>({
+@@ -245,7 +248,7 @@ export default function CustomerDetailPage() {
+             </h1>
+             <div className="flex items-center gap-2 mt-1">
+               <span className="text-sm text-muted-foreground">
+-                Customer #{customer.id}
++                Customer {customer.customerNumber}
+               </span>
+               <span
+                 className={`px-2 py-0.5 rounded text-[10px] font-bold uppercase tracking-wider ${customer.status === "active" ? "bg-primary/10 text-primary" : "bg-muted text-muted-foreground"}`}
+@@ -456,6 +459,48 @@ export default function CustomerDetailPage() {
+               </div>
+             </CardContent>
+           </Card>
++
++          <Card>
++            <CardHeader>
++              <CardTitle className="flex items-center gap-2">
++                <ClipboardList className="w-5 h-5 text-primary" /> Job Purchase Orders
++              </CardTitle>
++              <CardDescription>
++                Every purchase order issued for this customer's jobs.
++              </CardDescription>
++            </CardHeader>
++            <CardContent className="space-y-2">
++              {jobsLoading && (
++                <p className="text-sm text-muted-foreground">Loading job POs...</p>
++              )}
++              {!jobsLoading &&
++                (jobs ?? []).filter((job) => job.customerId === id).length === 0 && (
++                  <p className="rounded-lg border border-dashed p-6 text-center text-sm text-muted-foreground">
++                    No job purchase orders yet.
++                  </p>
++                )}
++              {(jobs ?? [])
++                .filter((job) => job.customerId === id)
++                .map((job) => (
++                  <button
++                    key={job.id}
++                    type="button"
++                    onClick={() => setLocation(`/jobs/${job.id}`)}
++                    className="flex w-full items-center justify-between gap-3 rounded-lg border p-3 text-left hover:bg-muted/50"
++                  >
++                    <div className="min-w-0">
++                      <p className="truncate text-sm font-medium">{job.title}</p>
++                      <p className="text-xs capitalize text-muted-foreground">
++                        {job.status.replaceAll("_", " ")}
++                      </p>
++                    </div>
++                    <span className="shrink-0 font-mono text-sm font-semibold text-primary">
++                      {job.poNumber}
++                    </span>
++                  </button>
++                ))}
++            </CardContent>
++          </Card>
+         </div>
+ 
+         <div className="space-y-6">
+diff --git a/artifacts/righttemp-os/src/pages/job-detail.tsx b/artifacts/righttemp-os/src/pages/job-detail.tsx
+index 93f62bd..bc01379 100644
+--- a/artifacts/righttemp-os/src/pages/job-detail.tsx
++++ b/artifacts/righttemp-os/src/pages/job-detail.tsx
+@@ -34,7 +34,7 @@ export default function JobDetailPage() {
+         </Button>
+         <div>
+           <h1 className="text-3xl font-bold">{job.title}</h1>
+-          <p className="text-muted-foreground mt-1">Job #{job.id}</p>
++          <p className="text-muted-foreground mt-1">{job.poNumber}</p>
+         </div>
+         </div>
+         <Button variant="outline" onClick={() => setLocation(`/estimates?customerId=${job.customerId}`)}>
+diff --git a/artifacts/righttemp-os/src/pages/jobs.tsx b/artifacts/righttemp-os/src/pages/jobs.tsx
+index 7cf1c2d..e95e904 100644
+--- a/artifacts/righttemp-os/src/pages/jobs.tsx
++++ b/artifacts/righttemp-os/src/pages/jobs.tsx
+@@ -1,4 +1,4 @@
+-import { CalendarDays, Plus, UserRound } from "lucide-react";
++import { CalendarDays, ClipboardList, Plus, UserRound } from "lucide-react";
+ import { Link } from "wouter";
+ import { Button } from "@/components/ui/button";
+ import { Card, CardContent } from "@/components/ui/card";
+@@ -22,12 +22,10 @@ export default function JobsPage() {
+             Scheduled installs and active jobs.
+           </p>
+         </div>
+-        <Button asChild>
+-          <Link href="/jobs/new">
+-            <Plus className="mr-2 h-4 w-4" />
+-            New Job
+-          </Link>
+-        </Button>
++        <div className="flex gap-2">
++          <Button variant="outline" asChild><Link href="/purchase-orders"><ClipboardList className="mr-2 h-4 w-4" />PO Tracker</Link></Button>
++          <Button asChild><Link href="/jobs/new"><Plus className="mr-2 h-4 w-4" />New Job</Link></Button>
++        </div>
+       </div>
+ 
+       {isLoading && (
+diff --git a/artifacts/righttemp-os/src/pages/lead-detail.tsx b/artifacts/righttemp-os/src/pages/lead-detail.tsx
+index 9e1edf0..0b2f994 100644
+--- a/artifacts/righttemp-os/src/pages/lead-detail.tsx
++++ b/artifacts/righttemp-os/src/pages/lead-detail.tsx
+@@ -87,6 +87,8 @@ const leadUpdateSchema = z.object({
+   equipment: z.string().optional(),
+ 
+   scopeOfWork: z.string().optional(),
++  contactedNotes: z.string().optional(),
++  qualifiedNotes: z.string().optional(),
+ });
+ 
+ type LeadUpdateValues = z.infer<typeof leadUpdateSchema>;
+@@ -111,6 +113,8 @@ function getLeadFormValues(lead: Lead): LeadUpdateValues {
+     estimatePrice: lead.estimatePrice ?? undefined,
+     equipment: lead.equipment ?? "",
+     scopeOfWork: lead.scopeOfWork ?? "",
++    contactedNotes: lead.contactedNotes ?? "",
++    qualifiedNotes: lead.qualifiedNotes ?? "",
+   };
+ }
+ export default function LeadDetailPage() {
+@@ -140,6 +144,8 @@ export default function LeadDetailPage() {
+       estimatePrice: undefined,
+       equipment: "",
+       scopeOfWork: "",
++      contactedNotes: "",
++      qualifiedNotes: "",
+     },
+   });
+ 
+@@ -504,6 +510,36 @@ export default function LeadDetailPage() {
+           </CardContent>
+         </Card>
+       )}
++      {form.watch("status") === "contacted" && (
++        <Card>
++          <CardHeader>
++            <CardTitle>Contacted Notes</CardTitle>
++            <CardDescription>Record the conversation, objections, timing, and next follow-up.</CardDescription>
++          </CardHeader>
++          <CardContent>
++            <Textarea
++              rows={6}
++              placeholder="Spoke with homeowner. System is 18 years old. Comparing options Friday..."
++              {...form.register("contactedNotes")}
++            />
++          </CardContent>
++        </Card>
++      )}
++      {form.watch("status") === "qualified" && (
++        <Card>
++          <CardHeader>
++            <CardTitle>Qualified Notes</CardTitle>
++            <CardDescription>Capture budget, decision makers, equipment needs, and buying timeline.</CardDescription>
++          </CardHeader>
++          <CardContent>
++            <Textarea
++              rows={6}
++              placeholder="Budget approved. Both homeowners decide. Wants inverter system before August..."
++              {...form.register("qualifiedNotes")}
++            />
++          </CardContent>
++        </Card>
++      )}
+       {form.watch("status") === "won" && (
+         <Card>
+           <CardHeader>
+diff --git a/artifacts/righttemp-os/src/pages/purchase-orders.tsx b/artifacts/righttemp-os/src/pages/purchase-orders.tsx
+new file mode 100644
+index 0000000..dbf1dbc
+--- /dev/null
++++ b/artifacts/righttemp-os/src/pages/purchase-orders.tsx
+@@ -0,0 +1,79 @@
++import { useState } from "react";
++import { useQueryClient } from "@tanstack/react-query";
++import { ClipboardList, Save } from "lucide-react";
++import { Button } from "@/components/ui/button";
++import { Card, CardContent } from "@/components/ui/card";
++import { Input } from "@/components/ui/input";
++import { Label } from "@/components/ui/label";
++import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
++import { Textarea } from "@/components/ui/textarea";
++import { purchaseOrderQueryKeys, usePurchaseOrders, useUpdatePurchaseOrder } from "@/features/purchase-orders/purchase-orders.hooks";
++import type { PoStatus, PurchaseOrder } from "@/features/purchase-orders/purchase-orders.types";
++import { useToast } from "@/hooks/use-toast";
++
++function PurchaseOrderCard({ order }: { order: PurchaseOrder }) {
++  const queryClient = useQueryClient();
++  const { toast } = useToast();
++  const updateOrder = useUpdatePurchaseOrder();
++  const [status, setStatus] = useState<PoStatus>(order.status);
++  const [vendor, setVendor] = useState(order.vendor ?? "");
++  const [amount, setAmount] = useState(order.amount?.toString() ?? "");
++  const [notes, setNotes] = useState(order.notes ?? "");
++
++  const save = () => updateOrder.mutate(
++    {
++      id: order.id,
++      input: { status, vendor, amount: amount ? Number(amount) : undefined, notes },
++    },
++    {
++      onSuccess: () => {
++        queryClient.invalidateQueries({ queryKey: purchaseOrderQueryKeys.all });
++        toast({ title: "PO updated", description: `${order.poNumber} was saved.` });
++      },
++      onError: (error) => toast({ title: "PO update failed", description: error.message, variant: "destructive" }),
++    },
++  );
++
++  return (
++    <Card>
++      <CardContent className="p-5 space-y-4">
++        <div className="flex items-start justify-between gap-3">
++          <div>
++            <p className="font-mono font-bold text-primary">{order.poNumber}</p>
++            <h2 className="font-semibold">{order.title}</h2>
++            <p className="text-sm text-muted-foreground">{order.customerName}</p>
++          </div>
++          <Select value={status} onValueChange={(value) => setStatus(value as PoStatus)}>
++            <SelectTrigger className="w-32"><SelectValue /></SelectTrigger>
++            <SelectContent>
++              <SelectItem value="pending">Pending</SelectItem>
++              <SelectItem value="ordered">Ordered</SelectItem>
++              <SelectItem value="received">Received</SelectItem>
++              <SelectItem value="closed">Closed</SelectItem>
++              <SelectItem value="cancelled">Cancelled</SelectItem>
++            </SelectContent>
++          </Select>
++        </div>
++        <div className="grid grid-cols-2 gap-3">
++          <div className="space-y-2"><Label>Vendor</Label><Input value={vendor} onChange={(e) => setVendor(e.target.value)} placeholder="AC Pro" /></div>
++          <div className="space-y-2"><Label>Amount</Label><Input type="number" min="0" step="0.01" value={amount} onChange={(e) => setAmount(e.target.value)} placeholder="0.00" /></div>
++        </div>
++        <div className="space-y-2"><Label>PO Notes</Label><Textarea value={notes} onChange={(e) => setNotes(e.target.value)} placeholder="Equipment ordered, pickup date, model numbers..." /></div>
++        <Button size="sm" onClick={save} disabled={updateOrder.isPending}><Save className="h-4 w-4 mr-2" />{updateOrder.isPending ? "Saving..." : "Save PO"}</Button>
++      </CardContent>
++    </Card>
++  );
++}
++
++export default function PurchaseOrdersPage() {
++  const { data: orders, isLoading, isError } = usePurchaseOrders();
++  return (
++    <div className="p-6 md:p-8 max-w-7xl mx-auto space-y-6">
++      <div><h1 className="text-3xl font-bold tracking-tight">PO Tracker</h1><p className="text-muted-foreground mt-2">Track equipment and material purchase orders for every job.</p></div>
++      {isLoading && <Card><CardContent className="py-12 text-center">Loading purchase orders...</CardContent></Card>}
++      {isError && <Card><CardContent className="py-12 text-center text-destructive">Unable to load purchase orders.</CardContent></Card>}
++      {!isLoading && !isError && (orders ?? []).length === 0 && <Card><CardContent className="py-14 text-center text-muted-foreground"><ClipboardList className="h-10 w-10 mx-auto mb-3" />No purchase orders yet.</CardContent></Card>}
++      <div className="grid gap-4 lg:grid-cols-2">{(orders ?? []).map((order) => <PurchaseOrderCard key={order.id} order={order} />)}</div>
++    </div>
++  );
++}
+diff --git a/supabase/migrations/20260802194800_add_po_tracking_and_lead_stage_notes.sql b/supabase/migrations/20260802194800_add_po_tracking_and_lead_stage_notes.sql
+new file mode 100644
+index 0000000..398c3bb
+--- /dev/null
++++ b/supabase/migrations/20260802194800_add_po_tracking_and_lead_stage_notes.sql
+@@ -0,0 +1,67 @@
++CREATE SEQUENCE IF NOT EXISTS public.customer_number_seq;
++CREATE SEQUENCE IF NOT EXISTS public.job_po_number_seq;
++
++ALTER TABLE public.customers
++  ADD COLUMN customer_number TEXT;
++
++ALTER TABLE public.jobs
++  ADD COLUMN po_number TEXT,
++  ADD COLUMN po_status TEXT NOT NULL DEFAULT 'pending'
++    CHECK (po_status IN ('pending', 'ordered', 'received', 'closed', 'cancelled')),
++  ADD COLUMN po_vendor TEXT,
++  ADD COLUMN po_amount NUMERIC(12,2),
++  ADD COLUMN po_notes TEXT;
++
++CREATE OR REPLACE FUNCTION private.assign_customer_number()
++RETURNS TRIGGER
++LANGUAGE plpgsql
++SECURITY INVOKER
++SET search_path = ''
++AS $$
++BEGIN
++  IF NEW.customer_number IS NULL THEN
++    NEW.customer_number := 'CUS-' || lpad(nextval('public.customer_number_seq')::text, 6, '0');
++  END IF;
++  RETURN NEW;
++END;
++$$;
++
++CREATE OR REPLACE FUNCTION private.assign_job_po_number()
++RETURNS TRIGGER
++LANGUAGE plpgsql
++SECURITY INVOKER
++SET search_path = ''
++AS $$
++BEGIN
++  IF NEW.po_number IS NULL THEN
++    NEW.po_number := 'PO-' || lpad(nextval('public.job_po_number_seq')::text, 6, '0');
++  END IF;
++  RETURN NEW;
++END;
++$$;
++
++CREATE TRIGGER trg_customers_assign_customer_number
++  BEFORE INSERT ON public.customers
++  FOR EACH ROW EXECUTE FUNCTION private.assign_customer_number();
++
++CREATE TRIGGER trg_jobs_assign_po_number
++  BEFORE INSERT ON public.jobs
++  FOR EACH ROW EXECUTE FUNCTION private.assign_job_po_number();
++
++UPDATE public.customers
++SET customer_number = 'CUS-' || lpad(nextval('public.customer_number_seq')::text, 6, '0')
++WHERE customer_number IS NULL;
++
++UPDATE public.jobs
++SET po_number = 'PO-' || lpad(nextval('public.job_po_number_seq')::text, 6, '0')
++WHERE po_number IS NULL;
++
++ALTER TABLE public.customers ALTER COLUMN customer_number SET NOT NULL;
++ALTER TABLE public.jobs ALTER COLUMN po_number SET NOT NULL;
++CREATE UNIQUE INDEX idx_customers_customer_number ON public.customers(customer_number);
++CREATE UNIQUE INDEX idx_jobs_po_number ON public.jobs(po_number);
++CREATE INDEX idx_jobs_po_status ON public.jobs(po_status);
++
++ALTER TABLE public.leads
++  ADD COLUMN contacted_notes TEXT,
++  ADD COLUMN qualified_notes TEXT;
+-- 
+2.51.1
+

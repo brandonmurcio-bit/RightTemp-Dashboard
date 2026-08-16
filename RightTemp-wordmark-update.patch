@@ -1,0 +1,31 @@
+From f129b019328c555d37e595510a77d29f9df51fe0 Mon Sep 17 00:00:00 2001
+From: Replit Agent <agent@replit.com>
+Date: Sun, 9 Aug 2026 03:06:57 +0000
+Subject: [PATCH] feat: match public wordmark to RightTemp logo
+
+---
+ artifacts/righttemp-os/src/pages/service-landing.tsx | 8 +++++++-
+ 1 file changed, 7 insertions(+), 1 deletion(-)
+
+diff --git a/artifacts/righttemp-os/src/pages/service-landing.tsx b/artifacts/righttemp-os/src/pages/service-landing.tsx
+index 9b9bb03..c8a6df4 100644
+--- a/artifacts/righttemp-os/src/pages/service-landing.tsx
++++ b/artifacts/righttemp-os/src/pages/service-landing.tsx
+@@ -93,7 +93,13 @@ export default function ServiceLandingPage() {
+             <span className="grid h-11 w-11 place-items-center overflow-hidden rounded-xl bg-black p-1 shadow-sm">
+               <img src="/icons/righttemp-512.png" alt="" className="h-full w-full object-contain" />
+             </span>
+-            <span className="text-xl font-extrabold tracking-[-0.04em]">RIGHT<span className="text-blue-600">TEMP</span></span>
++            <span
++              className="text-[1.35rem] font-black italic leading-none tracking-[-0.055em]"
++              aria-label="RightTemp"
++            >
++              <span className="text-red-600">Right</span>
++              <span className="text-blue-600">Temp</span>
++            </span>
+           </a>
+           <a href="#request-service" className="rounded-full bg-slate-950 px-4 py-2.5 text-sm font-bold text-white shadow-sm hover:bg-blue-700">
+             Request service
+-- 
+2.51.1
+

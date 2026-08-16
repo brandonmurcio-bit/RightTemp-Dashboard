@@ -1,0 +1,176 @@
+From 150499e71e1ad67cfa89cd1679cb070169e734b7 Mon Sep 17 00:00:00 2001
+From: Codex <noreply@openai.com>
+Date: Sun, 2 Aug 2026 21:09:59 +0000
+Subject: [PATCH] feat: delete jobs safely
+
+---
+ .../src/components/edit-job-dialog.tsx        | 34 ++++++++++++--
+ .../src/features/jobs/jobs.hooks.ts           |  6 ++-
+ .../src/features/jobs/jobs.repository.ts      | 47 +++++++++++++++++++
+ .../righttemp-os/src/pages/job-detail.tsx     |  2 +-
+ 4 files changed, 83 insertions(+), 6 deletions(-)
+
+diff --git a/artifacts/righttemp-os/src/components/edit-job-dialog.tsx b/artifacts/righttemp-os/src/components/edit-job-dialog.tsx
+index 0135f05..634f732 100644
+--- a/artifacts/righttemp-os/src/components/edit-job-dialog.tsx
++++ b/artifacts/righttemp-os/src/components/edit-job-dialog.tsx
+@@ -1,13 +1,14 @@
+ import { useState } from "react";
+ import { useQueryClient } from "@tanstack/react-query";
+-import { Pencil, Save } from "lucide-react";
++import { Pencil, Save, Trash2 } from "lucide-react";
+ import { Button } from "@/components/ui/button";
+ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
+ import { Input } from "@/components/ui/input";
+ import { Label } from "@/components/ui/label";
+ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+ import { Textarea } from "@/components/ui/textarea";
+-import { jobQueryKeys, useUpdateJob } from "@/features/jobs/jobs.hooks";
++import { dashboardQueryKeys } from "@/features/dashboard/dashboard.hooks";
++import { jobQueryKeys, useDeleteJob, useUpdateJob } from "@/features/jobs/jobs.hooks";
+ import type { Job, JobPriority, JobStatus } from "@/features/jobs/jobs.types";
+ import { useToast } from "@/hooks/use-toast";
+ 
+@@ -32,10 +33,11 @@ function jobHours(job: Job): string {
+   return hours > 0 ? String(hours) : "8";
+ }
+ 
+-export function EditJobDialog({ job }: { job: Job }) {
++export function EditJobDialog({ job, onDeleted }: { job: Job; onDeleted?: () => void }) {
+   const queryClient = useQueryClient();
+   const { toast } = useToast();
+   const updateJob = useUpdateJob();
++  const deleteJob = useDeleteJob();
+   const [open, setOpen] = useState(false);
+   const [title, setTitle] = useState(job.title);
+   const [status, setStatus] = useState<JobStatus>(job.status);
+@@ -108,6 +110,25 @@ export function EditJobDialog({ job }: { job: Job }) {
+     );
+   };
+ 
++  const remove = () => {
++    const confirmed = window.confirm(
++      `Permanently delete ${job.title}? Its job costs, receipts, and job files will also be deleted. The customer and estimate will remain. This cannot be undone.`,
++    );
++    if (!confirmed) return;
++    deleteJob.mutate(job.id, {
++      onSuccess: () => {
++        queryClient.removeQueries({ queryKey: jobQueryKeys.detail(job.id) });
++        queryClient.invalidateQueries({ queryKey: jobQueryKeys.list() });
++        queryClient.invalidateQueries({ queryKey: dashboardQueryKeys.stats });
++        setOpen(false);
++        toast({ title: "Job deleted" });
++        onDeleted?.();
++      },
++      onError: (error) =>
++        toast({ title: "Job deletion failed", description: error.message, variant: "destructive" }),
++    });
++  };
++
+   return (
+     <Dialog open={open} onOpenChange={(next) => { setOpen(next); if (next) reset(); }}>
+       <DialogTrigger asChild>
+@@ -132,7 +153,12 @@ export function EditJobDialog({ job }: { job: Job }) {
+           </div>
+           <div className="space-y-2"><Label>Description</Label><Textarea value={description} onChange={(event) => setDescription(event.target.value)} /></div>
+           <div className="space-y-2"><Label>Internal job notes</Label><Textarea value={notes} onChange={(event) => setNotes(event.target.value)} /></div>
+-          <Button className="w-full" onClick={save} disabled={updateJob.isPending}><Save className="mr-2 h-4 w-4" />{updateJob.isPending ? "Saving..." : "Save Job Changes"}</Button>
++          <Button className="w-full" onClick={save} disabled={updateJob.isPending || deleteJob.isPending}><Save className="mr-2 h-4 w-4" />{updateJob.isPending ? "Saving..." : "Save Job Changes"}</Button>
++          <div className="border-t pt-4">
++            <Button type="button" variant="destructive" className="w-full" onClick={remove} disabled={updateJob.isPending || deleteJob.isPending}>
++              <Trash2 className="mr-2 h-4 w-4" />{deleteJob.isPending ? "Deleting Job..." : "Delete Job"}
++            </Button>
++          </div>
+         </div>
+       </DialogContent>
+     </Dialog>
+diff --git a/artifacts/righttemp-os/src/features/jobs/jobs.hooks.ts b/artifacts/righttemp-os/src/features/jobs/jobs.hooks.ts
+index c0e904c..302e0e4 100644
+--- a/artifacts/righttemp-os/src/features/jobs/jobs.hooks.ts
++++ b/artifacts/righttemp-os/src/features/jobs/jobs.hooks.ts
+@@ -1,5 +1,5 @@
+ import { useMutation, useQuery } from "@tanstack/react-query";
+-import { createJob, getJob, getJobs, updateJob } from "./jobs.repository";
++import { createJob, deleteJob, getJob, getJobs, updateJob } from "./jobs.repository";
+ import type { JobInput, JobUpdateInput } from "./jobs.types";
+ 
+ export const jobQueryKeys = {
+@@ -30,3 +30,7 @@ export function useUpdateJob() {
+       updateJob(id, input),
+   });
+ }
++
++export function useDeleteJob() {
++  return useMutation({ mutationFn: (id: string) => deleteJob(id) });
++}
+diff --git a/artifacts/righttemp-os/src/features/jobs/jobs.repository.ts b/artifacts/righttemp-os/src/features/jobs/jobs.repository.ts
+index cf63c14..36c21c7 100644
+--- a/artifacts/righttemp-os/src/features/jobs/jobs.repository.ts
++++ b/artifacts/righttemp-os/src/features/jobs/jobs.repository.ts
+@@ -81,3 +81,50 @@ export async function updateJob(id: string, input: JobUpdateInput): Promise<Job>
+   if (error) throw new Error(`Unable to update job: ${error.message}`);
+   return mapJobRowToJob(data as JobRow);
+ }
++
++export async function deleteJob(id: string): Promise<void> {
++  const organizationId = await getCurrentOrganizationId();
++
++  const { data: payments, error: paymentsError } = await supabase
++    .from("payments")
++    .select("id")
++    .eq("organization_id", organizationId)
++    .eq("job_id", id)
++    .limit(1);
++  if (paymentsError) {
++    throw new Error(`Unable to verify job payments: ${paymentsError.message}`);
++  }
++  if (payments?.length) {
++    throw new Error("This job has a payment record. Remove or void that payment before deleting the job.");
++  }
++
++  const { data: documents, error: documentsError } = await supabase
++    .from("job_documents")
++    .select("storage_path")
++    .eq("organization_id", organizationId)
++    .eq("job_id", id);
++  if (documentsError) {
++    throw new Error(`Unable to verify job files: ${documentsError.message}`);
++  }
++
++  const storagePaths = (documents ?? []).map((document) => document.storage_path);
++  if (storagePaths.length) {
++    const { error: storageError } = await supabase.storage
++      .from("job-documents")
++      .remove(storagePaths);
++    if (storageError) {
++      throw new Error(`Unable to remove job files: ${storageError.message}`);
++    }
++  }
++
++  const { data: deletedJobs, error } = await supabase
++    .from("jobs")
++    .delete()
++    .eq("id", id)
++    .eq("organization_id", organizationId)
++    .select("id");
++  if (error) throw new Error(`Unable to delete job: ${error.message}`);
++  if (!deletedJobs?.length) {
++    throw new Error("The job was not deleted. Only an organization admin can delete jobs.");
++  }
++}
+diff --git a/artifacts/righttemp-os/src/pages/job-detail.tsx b/artifacts/righttemp-os/src/pages/job-detail.tsx
+index 5cbf9f9..42902c8 100644
+--- a/artifacts/righttemp-os/src/pages/job-detail.tsx
++++ b/artifacts/righttemp-os/src/pages/job-detail.tsx
+@@ -41,7 +41,7 @@ export default function JobDetailPage() {
+         </div>
+         </div>
+         <div className="flex flex-wrap gap-2">
+-          <EditJobDialog job={job} />
++          <EditJobDialog job={job} onDeleted={() => setLocation("/jobs")} />
+           <Button variant="outline" onClick={() => setLocation(`/estimates?customerId=${job.customerId}`)}>
+             <FileText className="h-4 w-4 mr-2" /> Create Estimate
+           </Button>
+-- 
+2.51.1
+

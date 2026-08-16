@@ -1,0 +1,361 @@
+From 42b9e6fda80d1617e6fcc58da85f2612e40795bd Mon Sep 17 00:00:00 2001
+From: Codex <noreply@openai.com>
+Date: Sun, 2 Aug 2026 19:01:17 +0000
+Subject: [PATCH 1/2] fix: align navigation with sales workflow
+
+---
+ artifacts/righttemp-os/src/components/layout.tsx | 4 ++--
+ 1 file changed, 2 insertions(+), 2 deletions(-)
+
+diff --git a/artifacts/righttemp-os/src/components/layout.tsx b/artifacts/righttemp-os/src/components/layout.tsx
+index 2360860..ae5d8a7 100644
+--- a/artifacts/righttemp-os/src/components/layout.tsx
++++ b/artifacts/righttemp-os/src/components/layout.tsx
+@@ -15,9 +15,9 @@ export function Layout({ children }: { children: React.ReactNode }) {
+   const navItems = [
+     { label: "Dashboard", path: "/", icon: LayoutDashboard },
+     { label: "Leads", path: "/leads", icon: Activity },
+-    { label: "Customers", path: "/customers", icon: Users },
+-    { label: "Jobs", path: "/jobs", icon: CalendarDays },
+     { label: "Estimates", path: "/estimates", icon: FileText },
++    { label: "Jobs", path: "/jobs", icon: CalendarDays },
++    { label: "Customers", path: "/customers", icon: Users },
+   ];
+ 
+   return (
+-- 
+2.51.1
+
+
+From 3a82e67629467959b3b3d61cbcffe4ad003609e0 Mon Sep 17 00:00:00 2001
+From: Codex <noreply@openai.com>
+Date: Sun, 2 Aug 2026 19:12:07 +0000
+Subject: [PATCH 2/2] feat: sync won leads with estimates
+
+---
+ .../estimates/estimates.repository.ts         | 11 ++-
+ .../src/features/estimates/estimates.types.ts | 12 ++-
+ .../righttemp-os/src/pages/estimates.tsx      | 34 +++++++-
+ .../righttemp-os/src/pages/lead-detail.tsx    | 16 +++-
+ ..._link_lead_estimates_to_won_conversion.sql | 77 +++++++++++++++++++
+ 5 files changed, 137 insertions(+), 13 deletions(-)
+ create mode 100644 supabase/migrations/20260802191016_link_lead_estimates_to_won_conversion.sql
+
+diff --git a/artifacts/righttemp-os/src/features/estimates/estimates.repository.ts b/artifacts/righttemp-os/src/features/estimates/estimates.repository.ts
+index 9e3b6e7..87d7fc7 100644
+--- a/artifacts/righttemp-os/src/features/estimates/estimates.repository.ts
++++ b/artifacts/righttemp-os/src/features/estimates/estimates.repository.ts
+@@ -3,17 +3,19 @@ import { supabase } from "@/lib/supabase";
+ import type { Estimate, EstimateInput, EstimateRow, EstimateStatus } from "./estimates.types";
+ 
+ const estimateSelect = `
+-  id, customer_id, estimate_number, title, line_items, subtotal, tax_rate,
++  id, customer_id, lead_id, estimate_number, title, line_items, subtotal, tax_rate,
+   tax_amount, total, status, valid_until, notes, created_at,
+-  customers!estimates_customer_id_fkey(name)
++  customers!estimates_customer_id_fkey(name), leads!estimates_lead_id_fkey(name)
+ `;
+ 
+ function mapEstimate(row: EstimateRow): Estimate {
+   const customer = Array.isArray(row.customers) ? row.customers[0] : row.customers;
++  const lead = Array.isArray(row.leads) ? row.leads[0] : row.leads;
+   return {
+     id: row.id,
+     customerId: row.customer_id,
+-    customerName: customer?.name ?? "Unknown customer",
++    leadId: row.lead_id,
++    customerName: customer?.name ?? lead?.name ?? "Unknown contact",
+     estimateNumber: row.estimate_number,
+     title: row.title,
+     lineItems: row.line_items ?? [],
+@@ -47,7 +49,8 @@ export async function createEstimate(input: EstimateInput): Promise<Estimate> {
+     .from("estimates")
+     .insert({
+       organization_id: organizationId,
+-      customer_id: input.customerId,
++      customer_id: input.customerId || null,
++      lead_id: input.leadId || null,
+       title: input.title,
+       line_items: input.lineItems,
+       subtotal,
+diff --git a/artifacts/righttemp-os/src/features/estimates/estimates.types.ts b/artifacts/righttemp-os/src/features/estimates/estimates.types.ts
+index d28a297..8b10ca1 100644
+--- a/artifacts/righttemp-os/src/features/estimates/estimates.types.ts
++++ b/artifacts/righttemp-os/src/features/estimates/estimates.types.ts
+@@ -1,4 +1,4 @@
+-export type EstimateStatus = "draft" | "sent" | "approved" | "rejected" | "expired";
++export type EstimateStatus = "draft" | "sent" | "approved" | "won" | "rejected" | "expired";
+ 
+ export interface EstimateLineItem {
+   description: string;
+@@ -9,7 +9,8 @@ export interface EstimateLineItem {
+ 
+ export interface Estimate {
+   id: string;
+-  customerId: string;
++  customerId: string | null;
++  leadId: string | null;
+   customerName: string;
+   estimateNumber: string | null;
+   title: string;
+@@ -25,7 +26,8 @@ export interface Estimate {
+ }
+ 
+ export interface EstimateInput {
+-  customerId: string;
++  customerId?: string;
++  leadId?: string;
+   title: string;
+   lineItems: EstimateLineItem[];
+   taxRate: number;
+@@ -35,7 +37,8 @@ export interface EstimateInput {
+ 
+ export interface EstimateRow {
+   id: string;
+-  customer_id: string;
++  customer_id: string | null;
++  lead_id: string | null;
+   estimate_number: string | null;
+   title: string;
+   line_items: EstimateLineItem[];
+@@ -48,4 +51,5 @@ export interface EstimateRow {
+   notes: string | null;
+   created_at: string;
+   customers: { name: string } | { name: string }[] | null;
++  leads: { name: string } | { name: string }[] | null;
+ }
+diff --git a/artifacts/righttemp-os/src/pages/estimates.tsx b/artifacts/righttemp-os/src/pages/estimates.tsx
+index a2b1520..4e9d924 100644
+--- a/artifacts/righttemp-os/src/pages/estimates.tsx
++++ b/artifacts/righttemp-os/src/pages/estimates.tsx
+@@ -9,6 +9,7 @@ import { Label } from "@/components/ui/label";
+ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+ import { Textarea } from "@/components/ui/textarea";
+ import { useCustomers } from "@/features/customers/customers.hooks";
++import { useLeads } from "@/features/leads/leads.hooks";
+ import {
+   estimateQueryKeys,
+   useCreateEstimate,
+@@ -23,6 +24,7 @@ const statusColors: Record<EstimateStatus, string> = {
+   draft: "bg-muted text-muted-foreground",
+   sent: "bg-blue-500/10 text-blue-400",
+   approved: "bg-emerald-500/10 text-emerald-400",
++  won: "bg-emerald-500/10 text-emerald-400",
+   rejected: "bg-red-500/10 text-red-400",
+   expired: "bg-amber-500/10 text-amber-400",
+ };
+@@ -32,10 +34,12 @@ export default function EstimatesPage() {
+   const { toast } = useToast();
+   const { data: estimates, isLoading, isError } = useEstimates();
+   const { data: customers } = useCustomers();
++  const { data: leads } = useLeads();
+   const createEstimate = useCreateEstimate();
+   const updateStatus = useUpdateEstimateStatus();
+   const [open, setOpen] = useState(false);
+   const [customerId, setCustomerId] = useState("");
++  const [leadId, setLeadId] = useState("");
+   const [title, setTitle] = useState("HVAC System Proposal");
+   const [description, setDescription] = useState("");
+   const [quantity, setQuantity] = useState("1");
+@@ -46,12 +50,32 @@ export default function EstimatesPage() {
+ 
+   useEffect(() => {
+     const requestedCustomerId = new URLSearchParams(window.location.search).get("customerId");
++    const requestedLeadId = new URLSearchParams(window.location.search).get("leadId");
+     if (requestedCustomerId) {
+       setCustomerId(requestedCustomerId);
+       setOpen(true);
+     }
++    if (requestedLeadId) {
++      setLeadId(requestedLeadId);
++      setOpen(true);
++    }
+   }, []);
+ 
++  useEffect(() => {
++    const selectedLead = (leads ?? []).find((lead) => lead.id === leadId);
++    if (!selectedLead) return;
++    if (!description) {
++      setDescription(
++        [selectedLead.equipment, selectedLead.scopeOfWork]
++          .filter(Boolean)
++          .join(" — "),
++      );
++    }
++    if (!unitPrice && selectedLead.estimatePrice) {
++      setUnitPrice(String(selectedLead.estimatePrice));
++    }
++  }, [description, leadId, leads, unitPrice]);
++
+   const subtotal = useMemo(
+     () => (Number(quantity) || 0) * (Number(unitPrice) || 0),
+     [quantity, unitPrice],
+@@ -59,13 +83,14 @@ export default function EstimatesPage() {
+   const total = subtotal * (1 + (Number(taxPercent) || 0) / 100);
+ 
+   const submit = () => {
+-    if (!customerId || !title.trim() || !description.trim() || subtotal <= 0) {
+-      toast({ title: "Missing estimate details", description: "Choose a customer and enter a priced line item.", variant: "destructive" });
++    if ((!customerId && !leadId) || !title.trim() || !description.trim() || subtotal <= 0) {
++      toast({ title: "Missing estimate details", description: "Choose a lead or customer and enter a priced line item.", variant: "destructive" });
+       return;
+     }
+     createEstimate.mutate(
+       {
+-        customerId,
++        customerId: customerId || undefined,
++        leadId: leadId || undefined,
+         title: title.trim(),
+         lineItems: [{
+           description: description.trim(),
+@@ -110,7 +135,8 @@ export default function EstimatesPage() {
+           <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto">
+             <DialogHeader><DialogTitle>Create Estimate</DialogTitle></DialogHeader>
+             <div className="space-y-5">
+-              <div className="space-y-2"><Label>Customer</Label><Select value={customerId} onValueChange={setCustomerId}><SelectTrigger><SelectValue placeholder="Select customer" /></SelectTrigger><SelectContent>{(customers ?? []).map((customer) => <SelectItem key={customer.id} value={customer.id}>{customer.name}</SelectItem>)}</SelectContent></Select></div>
++              <div className="space-y-2"><Label>Customer</Label><Select value={customerId} onValueChange={(value) => { setCustomerId(value); setLeadId(""); }}><SelectTrigger><SelectValue placeholder="Select customer" /></SelectTrigger><SelectContent>{(customers ?? []).map((customer) => <SelectItem key={customer.id} value={customer.id}>{customer.name}</SelectItem>)}</SelectContent></Select></div>
++              <div className="space-y-2"><Label>Or open lead</Label><Select value={leadId} onValueChange={(value) => { setLeadId(value); setCustomerId(""); }}><SelectTrigger><SelectValue placeholder="Select lead" /></SelectTrigger><SelectContent>{(leads ?? []).filter((lead) => lead.status !== "lost" && lead.status !== "won").map((lead) => <SelectItem key={lead.id} value={lead.id}>{lead.name}</SelectItem>)}</SelectContent></Select></div>
+               <div className="space-y-2"><Label>Proposal title</Label><Input value={title} onChange={(e) => setTitle(e.target.value)} /></div>
+               <div className="space-y-2"><Label>Line item</Label><Input placeholder="3-ton Daikin FIT system with installation" value={description} onChange={(e) => setDescription(e.target.value)} /></div>
+               <div className="grid grid-cols-3 gap-3">
+diff --git a/artifacts/righttemp-os/src/pages/lead-detail.tsx b/artifacts/righttemp-os/src/pages/lead-detail.tsx
+index 23a0fe4..9e1edf0 100644
+--- a/artifacts/righttemp-os/src/pages/lead-detail.tsx
++++ b/artifacts/righttemp-os/src/pages/lead-detail.tsx
+@@ -11,6 +11,7 @@ import {
+   Save,
+   Trash2,
+   UserRoundCheck,
++  FileText,
+ } from "lucide-react";
+ 
+ import {
+@@ -22,6 +23,7 @@ import {
+   useUpdateLead,
+ } from "@/features/leads/leads.hooks";
+ import { customerQueryKeys } from "@/features/customers/customers.hooks";
++import { estimateQueryKeys } from "@/features/estimates/estimates.hooks";
+ import type { Lead, LeadInput, LeadStatus } from "@/features/leads/leads.types";
+ import { useToast } from "@/hooks/use-toast";
+ 
+@@ -214,6 +216,7 @@ export default function LeadDetailPage() {
+         queryClient.invalidateQueries({
+           queryKey: dashboardQueryKeys.stats,
+         });
++        queryClient.invalidateQueries({ queryKey: estimateQueryKeys.all });
+ 
+         toast({
+           title: "Lead deleted",
+@@ -428,7 +431,11 @@ export default function LeadDetailPage() {
+                 <Button
+                   size="sm"
+                   disabled={updateLead.isPending}
+-                  onClick={() => advanceStatus(nextStage)}
++                  onClick={() =>
++                    nextStage === "won"
++                      ? handleConvertToCustomer(lead)
++                      : advanceStatus(nextStage)
++                  }
+                   className="w-full md:w-auto shadow-sm"
+                 >
+                   Advance to {nextStage}
+@@ -462,6 +469,13 @@ export default function LeadDetailPage() {
+           </CardHeader>
+ 
+           <CardContent className="space-y-4">
++            <Button
++              type="button"
++              variant="outline"
++              onClick={() => setLocation(`/estimates?leadId=${lead.id}`)}
++            >
++              <FileText className="w-4 h-4 mr-2" /> Build Full Estimate
++            </Button>
+             <div className="space-y-2">
+               <Label>Estimate Price</Label>
+               <Input
+diff --git a/supabase/migrations/20260802191016_link_lead_estimates_to_won_conversion.sql b/supabase/migrations/20260802191016_link_lead_estimates_to_won_conversion.sql
+new file mode 100644
+index 0000000..a8ce319
+--- /dev/null
++++ b/supabase/migrations/20260802191016_link_lead_estimates_to_won_conversion.sql
+@@ -0,0 +1,77 @@
++ALTER TABLE public.estimates
++  ALTER COLUMN customer_id DROP NOT NULL;
++
++ALTER TABLE public.estimates
++  DROP CONSTRAINT IF EXISTS estimates_status_check;
++
++ALTER TABLE public.estimates
++  ADD CONSTRAINT estimates_status_check
++  CHECK (status IN ('draft', 'sent', 'approved', 'won', 'rejected', 'expired'));
++
++CREATE OR REPLACE FUNCTION public.convert_lead_to_customer(p_lead_id UUID)
++RETURNS UUID
++LANGUAGE plpgsql
++SECURITY INVOKER
++SET search_path = public
++AS $$
++DECLARE
++  lead_row public.leads%ROWTYPE;
++  new_customer_id UUID;
++  normalized_service_type TEXT;
++BEGIN
++  IF auth.uid() IS NULL THEN
++    RAISE EXCEPTION 'Authentication required';
++  END IF;
++
++  SELECT * INTO lead_row
++  FROM public.leads
++  WHERE id = p_lead_id
++  FOR UPDATE;
++
++  IF NOT FOUND THEN
++    RAISE EXCEPTION 'Lead not found or access denied';
++  END IF;
++
++  new_customer_id := lead_row.customer_id;
++
++  IF new_customer_id IS NULL THEN
++    normalized_service_type := CASE
++      WHEN lower(coalesce(lead_row.service_type, '')) LIKE '%install%'
++        OR lower(coalesce(lead_row.service_type, '')) LIKE '%replace%' THEN 'hvac_install'
++      WHEN lower(coalesce(lead_row.service_type, '')) LIKE '%repair%'
++        OR lower(coalesce(lead_row.service_type, '')) LIKE '%service%' THEN 'hvac_repair'
++      WHEN lower(coalesce(lead_row.service_type, '')) LIKE '%maint%'
++        OR lower(coalesce(lead_row.service_type, '')) LIKE '%tune%' THEN 'maintenance'
++      WHEN lower(coalesce(lead_row.service_type, '')) LIKE '%inspect%' THEN 'inspection'
++      WHEN lower(coalesce(lead_row.service_type, '')) LIKE '%emerg%' THEN 'emergency'
++      ELSE 'other'
++    END;
++
++    INSERT INTO public.customers (
++      organization_id, name, email, phone, address, city, state, zip,
++      status, service_type, source, notes
++    ) VALUES (
++      lead_row.organization_id, lead_row.name, lead_row.email, lead_row.phone,
++      lead_row.address, lead_row.city, lead_row.state, lead_row.zip,
++      'active', normalized_service_type, lead_row.source, lead_row.notes
++    ) RETURNING id INTO new_customer_id;
++  END IF;
++
++  UPDATE public.leads
++  SET customer_id = new_customer_id, status = 'won'
++  WHERE id = lead_row.id;
++
++  UPDATE public.estimates
++  SET customer_id = new_customer_id,
++      status = 'won',
++      approved_at = COALESCE(approved_at, now())
++  WHERE lead_id = lead_row.id
++    AND organization_id = lead_row.organization_id
++    AND status IN ('draft', 'sent', 'approved');
++
++  RETURN new_customer_id;
++END;
++$$;
++
++REVOKE ALL ON FUNCTION public.convert_lead_to_customer(UUID) FROM PUBLIC, anon;
++GRANT EXECUTE ON FUNCTION public.convert_lead_to_customer(UUID) TO authenticated;
+-- 
+2.51.1
+

@@ -1,0 +1,367 @@
+From aef6e7549bda1071457b32c6a5f2a1b159a61318 Mon Sep 17 00:00:00 2001
+From: Codex <noreply@openai.com>
+Date: Sun, 2 Aug 2026 20:05:15 +0000
+Subject: [PATCH] fix: separate customer numbers from job purchase orders
+
+---
+ .../features/customers/customers.mappers.ts   |  2 +-
+ .../customers/customers.repository.ts         |  2 +-
+ .../src/features/customers/customers.types.ts |  4 +-
+ .../purchase-orders/purchase-orders.hooks.ts  |  6 +--
+ .../purchase-orders.repository.ts             | 32 ++++---------
+ .../purchase-orders/purchase-orders.types.ts  |  3 --
+ .../src/pages/customer-detail.tsx             | 47 ++++++++++++++++++-
+ .../src/pages/purchase-orders.tsx             |  7 ++-
+ ...0_add_po_tracking_and_lead_stage_notes.sql | 32 +++++--------
+ 9 files changed, 77 insertions(+), 58 deletions(-)
+
+diff --git a/artifacts/righttemp-os/src/features/customers/customers.mappers.ts b/artifacts/righttemp-os/src/features/customers/customers.mappers.ts
+index f5bb258..d22b319 100644
+--- a/artifacts/righttemp-os/src/features/customers/customers.mappers.ts
++++ b/artifacts/righttemp-os/src/features/customers/customers.mappers.ts
+@@ -22,7 +22,7 @@ export function mapCustomerRowToCustomer(
+     notes: row.notes,
+     createdAt: row.created_at,
+     updatedAt: row.updated_at,
+-    poNumber: row.po_number,
++    customerNumber: row.customer_number,
+   };
+ }
+ 
+diff --git a/artifacts/righttemp-os/src/features/customers/customers.repository.ts b/artifacts/righttemp-os/src/features/customers/customers.repository.ts
+index 2035a70..5ee69a6 100644
+--- a/artifacts/righttemp-os/src/features/customers/customers.repository.ts
++++ b/artifacts/righttemp-os/src/features/customers/customers.repository.ts
+@@ -21,7 +21,7 @@ const customerSelect = `
+   notes,
+   created_at,
+   updated_at
+-  ,po_number
++  ,customer_number
+ `;
+ 
+ function normalizeError(error: unknown, fallbackMessage: string): Error {
+diff --git a/artifacts/righttemp-os/src/features/customers/customers.types.ts b/artifacts/righttemp-os/src/features/customers/customers.types.ts
+index 07e250d..62b4a1e 100644
+--- a/artifacts/righttemp-os/src/features/customers/customers.types.ts
++++ b/artifacts/righttemp-os/src/features/customers/customers.types.ts
+@@ -22,7 +22,7 @@ export interface Customer {
+   notes: string | null;
+   createdAt: string;
+   updatedAt: string;
+-  poNumber: string;
++  customerNumber: string;
+ }
+ 
+ export interface CustomerInput {
+@@ -53,7 +53,7 @@ export interface CustomerRow {
+   notes: string | null;
+   created_at: string;
+   updated_at: string;
+-  po_number: string;
++  customer_number: string;
+ }
+ 
+ export interface CustomerInsert {
+diff --git a/artifacts/righttemp-os/src/features/purchase-orders/purchase-orders.hooks.ts b/artifacts/righttemp-os/src/features/purchase-orders/purchase-orders.hooks.ts
+index ef3c033..a1ebeba 100644
+--- a/artifacts/righttemp-os/src/features/purchase-orders/purchase-orders.hooks.ts
++++ b/artifacts/righttemp-os/src/features/purchase-orders/purchase-orders.hooks.ts
+@@ -1,6 +1,6 @@
+ import { useMutation, useQuery } from "@tanstack/react-query";
+ import { getPurchaseOrders, updatePurchaseOrder } from "./purchase-orders.repository";
+-import type { PoEntityType, PurchaseOrderUpdate } from "./purchase-orders.types";
++import type { PurchaseOrderUpdate } from "./purchase-orders.types";
+ 
+ export const purchaseOrderQueryKeys = { all: ["purchase-orders"] as const };
+ 
+@@ -10,7 +10,7 @@ export function usePurchaseOrders() {
+ 
+ export function useUpdatePurchaseOrder() {
+   return useMutation({
+-    mutationFn: ({ entityType, id, input }: { entityType: PoEntityType; id: string; input: PurchaseOrderUpdate }) =>
+-      updatePurchaseOrder(entityType, id, input),
++    mutationFn: ({ id, input }: { id: string; input: PurchaseOrderUpdate }) =>
++      updatePurchaseOrder(id, input),
+   });
+ }
+diff --git a/artifacts/righttemp-os/src/features/purchase-orders/purchase-orders.repository.ts b/artifacts/righttemp-os/src/features/purchase-orders/purchase-orders.repository.ts
+index a85d998..f6604e2 100644
+--- a/artifacts/righttemp-os/src/features/purchase-orders/purchase-orders.repository.ts
++++ b/artifacts/righttemp-os/src/features/purchase-orders/purchase-orders.repository.ts
+@@ -1,33 +1,18 @@
+ import { getCurrentOrganizationId } from "@/lib/get-current-organization-id";
+ import { supabase } from "@/lib/supabase";
+-import type { PoEntityType, PurchaseOrder, PurchaseOrderUpdate } from "./purchase-orders.types";
++import type { PurchaseOrder, PurchaseOrderUpdate } from "./purchase-orders.types";
+ 
+ export async function getPurchaseOrders(): Promise<PurchaseOrder[]> {
+   const organizationId = await getCurrentOrganizationId();
+-  const [customersResult, jobsResult] = await Promise.all([
+-    supabase.from("customers").select("id, name, po_number, po_status, po_vendor, po_amount, po_notes, created_at").eq("organization_id", organizationId),
+-    supabase.from("jobs").select("id, title, po_number, po_status, po_vendor, po_amount, po_notes, created_at, customers!jobs_customer_id_fkey(name)").eq("organization_id", organizationId),
+-  ]);
+-  if (customersResult.error) throw new Error(`Unable to load customer POs: ${customersResult.error.message}`);
++  const jobsResult = await supabase
++    .from("jobs")
++    .select("id, title, po_number, po_status, po_vendor, po_amount, po_notes, created_at, customers!jobs_customer_id_fkey(name)")
++    .eq("organization_id", organizationId);
+   if (jobsResult.error) throw new Error(`Unable to load job POs: ${jobsResult.error.message}`);
+-
+-  const customerOrders: PurchaseOrder[] = (customersResult.data ?? []).map((row) => ({
+-    id: row.id,
+-    entityType: "customer",
+-    poNumber: row.po_number,
+-    title: "Customer Account",
+-    customerName: row.name,
+-    status: row.po_status,
+-    vendor: row.po_vendor,
+-    amount: row.po_amount === null ? null : Number(row.po_amount),
+-    notes: row.po_notes,
+-    createdAt: row.created_at,
+-  }));
+   const jobOrders: PurchaseOrder[] = (jobsResult.data ?? []).map((row) => {
+     const relation = Array.isArray(row.customers) ? row.customers[0] : row.customers;
+     return {
+       id: row.id,
+-      entityType: "job",
+       poNumber: row.po_number,
+       title: row.title,
+       customerName: relation?.name ?? "Unknown customer",
+@@ -38,14 +23,13 @@ export async function getPurchaseOrders(): Promise<PurchaseOrder[]> {
+       createdAt: row.created_at,
+     };
+   });
+-  return [...jobOrders, ...customerOrders].sort((a, b) => b.createdAt.localeCompare(a.createdAt));
++  return jobOrders.sort((a, b) => b.createdAt.localeCompare(a.createdAt));
+ }
+ 
+-export async function updatePurchaseOrder(entityType: PoEntityType, id: string, input: PurchaseOrderUpdate): Promise<void> {
++export async function updatePurchaseOrder(id: string, input: PurchaseOrderUpdate): Promise<void> {
+   const organizationId = await getCurrentOrganizationId();
+-  const table = entityType === "job" ? "jobs" : "customers";
+   const { error } = await supabase
+-    .from(table)
++    .from("jobs")
+     .update({
+       po_status: input.status,
+       po_vendor: input.vendor || null,
+diff --git a/artifacts/righttemp-os/src/features/purchase-orders/purchase-orders.types.ts b/artifacts/righttemp-os/src/features/purchase-orders/purchase-orders.types.ts
+index 2633904..d434751 100644
+--- a/artifacts/righttemp-os/src/features/purchase-orders/purchase-orders.types.ts
++++ b/artifacts/righttemp-os/src/features/purchase-orders/purchase-orders.types.ts
+@@ -1,9 +1,6 @@
+ export type PoStatus = "pending" | "ordered" | "received" | "closed" | "cancelled";
+-export type PoEntityType = "customer" | "job";
+-
+ export interface PurchaseOrder {
+   id: string;
+-  entityType: PoEntityType;
+   poNumber: string;
+   title: string;
+   customerName: string;
+diff --git a/artifacts/righttemp-os/src/pages/customer-detail.tsx b/artifacts/righttemp-os/src/pages/customer-detail.tsx
+index ead2214..992bba9 100644
+--- a/artifacts/righttemp-os/src/pages/customer-detail.tsx
++++ b/artifacts/righttemp-os/src/pages/customer-detail.tsx
+@@ -24,6 +24,7 @@ import {
+   FileText,
+   Download,
+   Upload,
++  ClipboardList,
+ } from "lucide-react";
+ import { Button } from "@/components/ui/button";
+ import { Input } from "@/components/ui/input";
+@@ -62,6 +63,7 @@ import {
+   useUploadCustomerDocument,
+ } from "@/features/customer-documents/customer-documents.hooks";
+ import { openCustomerDocument } from "@/features/customer-documents/customer-documents.repository";
++import { useJobs } from "@/features/jobs/jobs.hooks";
+ 
+ const customerUpdateSchema = z.object({
+   name: z.string().min(1, "Name is required"),
+@@ -95,6 +97,7 @@ export default function CustomerDetailPage() {
+   const { data: documents, isLoading: documentsLoading } = useCustomerDocuments(id);
+   const uploadDocument = useUploadCustomerDocument();
+   const deleteDocument = useDeleteCustomerDocument();
++  const { data: jobs, isLoading: jobsLoading } = useJobs();
+   const [selectedFile, setSelectedFile] = useState<File | null>(null);
+ 
+   const form = useForm<CustomerUpdateValues>({
+@@ -245,7 +248,7 @@ export default function CustomerDetailPage() {
+             </h1>
+             <div className="flex items-center gap-2 mt-1">
+               <span className="text-sm text-muted-foreground">
+-                {customer.poNumber}
++                Customer {customer.customerNumber}
+               </span>
+               <span
+                 className={`px-2 py-0.5 rounded text-[10px] font-bold uppercase tracking-wider ${customer.status === "active" ? "bg-primary/10 text-primary" : "bg-muted text-muted-foreground"}`}
+@@ -456,6 +459,48 @@ export default function CustomerDetailPage() {
+               </div>
+             </CardContent>
+           </Card>
++
++          <Card>
++            <CardHeader>
++              <CardTitle className="flex items-center gap-2">
++                <ClipboardList className="w-5 h-5 text-primary" /> Job Purchase Orders
++              </CardTitle>
++              <CardDescription>
++                Every purchase order issued for this customer's jobs.
++              </CardDescription>
++            </CardHeader>
++            <CardContent className="space-y-2">
++              {jobsLoading && (
++                <p className="text-sm text-muted-foreground">Loading job POs...</p>
++              )}
++              {!jobsLoading &&
++                (jobs ?? []).filter((job) => job.customerId === id).length === 0 && (
++                  <p className="rounded-lg border border-dashed p-6 text-center text-sm text-muted-foreground">
++                    No job purchase orders yet.
++                  </p>
++                )}
++              {(jobs ?? [])
++                .filter((job) => job.customerId === id)
++                .map((job) => (
++                  <button
++                    key={job.id}
++                    type="button"
++                    onClick={() => setLocation(`/jobs/${job.id}`)}
++                    className="flex w-full items-center justify-between gap-3 rounded-lg border p-3 text-left hover:bg-muted/50"
++                  >
++                    <div className="min-w-0">
++                      <p className="truncate text-sm font-medium">{job.title}</p>
++                      <p className="text-xs capitalize text-muted-foreground">
++                        {job.status.replaceAll("_", " ")}
++                      </p>
++                    </div>
++                    <span className="shrink-0 font-mono text-sm font-semibold text-primary">
++                      {job.poNumber}
++                    </span>
++                  </button>
++                ))}
++            </CardContent>
++          </Card>
+         </div>
+ 
+         <div className="space-y-6">
+diff --git a/artifacts/righttemp-os/src/pages/purchase-orders.tsx b/artifacts/righttemp-os/src/pages/purchase-orders.tsx
+index 65df5e2..dbf1dbc 100644
+--- a/artifacts/righttemp-os/src/pages/purchase-orders.tsx
++++ b/artifacts/righttemp-os/src/pages/purchase-orders.tsx
+@@ -22,7 +22,6 @@ function PurchaseOrderCard({ order }: { order: PurchaseOrder }) {
+ 
+   const save = () => updateOrder.mutate(
+     {
+-      entityType: order.entityType,
+       id: order.id,
+       input: { status, vendor, amount: amount ? Number(amount) : undefined, notes },
+     },
+@@ -42,7 +41,7 @@ function PurchaseOrderCard({ order }: { order: PurchaseOrder }) {
+           <div>
+             <p className="font-mono font-bold text-primary">{order.poNumber}</p>
+             <h2 className="font-semibold">{order.title}</h2>
+-            <p className="text-sm text-muted-foreground">{order.customerName} · {order.entityType}</p>
++            <p className="text-sm text-muted-foreground">{order.customerName}</p>
+           </div>
+           <Select value={status} onValueChange={(value) => setStatus(value as PoStatus)}>
+             <SelectTrigger className="w-32"><SelectValue /></SelectTrigger>
+@@ -70,11 +69,11 @@ export default function PurchaseOrdersPage() {
+   const { data: orders, isLoading, isError } = usePurchaseOrders();
+   return (
+     <div className="p-6 md:p-8 max-w-7xl mx-auto space-y-6">
+-      <div><h1 className="text-3xl font-bold tracking-tight">PO Tracker</h1><p className="text-muted-foreground mt-2">Track purchase orders across customers and jobs.</p></div>
++      <div><h1 className="text-3xl font-bold tracking-tight">PO Tracker</h1><p className="text-muted-foreground mt-2">Track equipment and material purchase orders for every job.</p></div>
+       {isLoading && <Card><CardContent className="py-12 text-center">Loading purchase orders...</CardContent></Card>}
+       {isError && <Card><CardContent className="py-12 text-center text-destructive">Unable to load purchase orders.</CardContent></Card>}
+       {!isLoading && !isError && (orders ?? []).length === 0 && <Card><CardContent className="py-14 text-center text-muted-foreground"><ClipboardList className="h-10 w-10 mx-auto mb-3" />No purchase orders yet.</CardContent></Card>}
+-      <div className="grid gap-4 lg:grid-cols-2">{(orders ?? []).map((order) => <PurchaseOrderCard key={`${order.entityType}-${order.id}`} order={order} />)}</div>
++      <div className="grid gap-4 lg:grid-cols-2">{(orders ?? []).map((order) => <PurchaseOrderCard key={order.id} order={order} />)}</div>
+     </div>
+   );
+ }
+diff --git a/supabase/migrations/20260802194800_add_po_tracking_and_lead_stage_notes.sql b/supabase/migrations/20260802194800_add_po_tracking_and_lead_stage_notes.sql
+index d368c29..398c3bb 100644
+--- a/supabase/migrations/20260802194800_add_po_tracking_and_lead_stage_notes.sql
++++ b/supabase/migrations/20260802194800_add_po_tracking_and_lead_stage_notes.sql
+@@ -1,13 +1,8 @@
+-CREATE SEQUENCE IF NOT EXISTS public.customer_po_number_seq;
++CREATE SEQUENCE IF NOT EXISTS public.customer_number_seq;
+ CREATE SEQUENCE IF NOT EXISTS public.job_po_number_seq;
+ 
+ ALTER TABLE public.customers
+-  ADD COLUMN po_number TEXT,
+-  ADD COLUMN po_status TEXT NOT NULL DEFAULT 'pending'
+-    CHECK (po_status IN ('pending', 'ordered', 'received', 'closed', 'cancelled')),
+-  ADD COLUMN po_vendor TEXT,
+-  ADD COLUMN po_amount NUMERIC(12,2),
+-  ADD COLUMN po_notes TEXT;
++  ADD COLUMN customer_number TEXT;
+ 
+ ALTER TABLE public.jobs
+   ADD COLUMN po_number TEXT,
+@@ -17,15 +12,15 @@ ALTER TABLE public.jobs
+   ADD COLUMN po_amount NUMERIC(12,2),
+   ADD COLUMN po_notes TEXT;
+ 
+-CREATE OR REPLACE FUNCTION private.assign_customer_po_number()
++CREATE OR REPLACE FUNCTION private.assign_customer_number()
+ RETURNS TRIGGER
+ LANGUAGE plpgsql
+ SECURITY INVOKER
+ SET search_path = ''
+ AS $$
+ BEGIN
+-  IF NEW.po_number IS NULL THEN
+-    NEW.po_number := 'PO-C-' || lpad(nextval('public.customer_po_number_seq')::text, 6, '0');
++  IF NEW.customer_number IS NULL THEN
++    NEW.customer_number := 'CUS-' || lpad(nextval('public.customer_number_seq')::text, 6, '0');
+   END IF;
+   RETURN NEW;
+ END;
+@@ -39,33 +34,32 @@ SET search_path = ''
+ AS $$
+ BEGIN
+   IF NEW.po_number IS NULL THEN
+-    NEW.po_number := 'PO-J-' || lpad(nextval('public.job_po_number_seq')::text, 6, '0');
++    NEW.po_number := 'PO-' || lpad(nextval('public.job_po_number_seq')::text, 6, '0');
+   END IF;
+   RETURN NEW;
+ END;
+ $$;
+ 
+-CREATE TRIGGER trg_customers_assign_po_number
++CREATE TRIGGER trg_customers_assign_customer_number
+   BEFORE INSERT ON public.customers
+-  FOR EACH ROW EXECUTE FUNCTION private.assign_customer_po_number();
++  FOR EACH ROW EXECUTE FUNCTION private.assign_customer_number();
+ 
+ CREATE TRIGGER trg_jobs_assign_po_number
+   BEFORE INSERT ON public.jobs
+   FOR EACH ROW EXECUTE FUNCTION private.assign_job_po_number();
+ 
+ UPDATE public.customers
+-SET po_number = 'PO-C-' || lpad(nextval('public.customer_po_number_seq')::text, 6, '0')
+-WHERE po_number IS NULL;
++SET customer_number = 'CUS-' || lpad(nextval('public.customer_number_seq')::text, 6, '0')
++WHERE customer_number IS NULL;
+ 
+ UPDATE public.jobs
+-SET po_number = 'PO-J-' || lpad(nextval('public.job_po_number_seq')::text, 6, '0')
++SET po_number = 'PO-' || lpad(nextval('public.job_po_number_seq')::text, 6, '0')
+ WHERE po_number IS NULL;
+ 
+-ALTER TABLE public.customers ALTER COLUMN po_number SET NOT NULL;
++ALTER TABLE public.customers ALTER COLUMN customer_number SET NOT NULL;
+ ALTER TABLE public.jobs ALTER COLUMN po_number SET NOT NULL;
+-CREATE UNIQUE INDEX idx_customers_po_number ON public.customers(po_number);
++CREATE UNIQUE INDEX idx_customers_customer_number ON public.customers(customer_number);
+ CREATE UNIQUE INDEX idx_jobs_po_number ON public.jobs(po_number);
+-CREATE INDEX idx_customers_po_status ON public.customers(po_status);
+ CREATE INDEX idx_jobs_po_status ON public.jobs(po_status);
+ 
+ ALTER TABLE public.leads
+-- 
+2.51.1
+

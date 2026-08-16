@@ -1,0 +1,540 @@
+From 44822cdb660d0c50d6a3e979c243cebd3a53b58e Mon Sep 17 00:00:00 2001
+From: OpenAI Codex <codex@openai.com>
+Date: Sun, 16 Aug 2026 06:29:10 +0000
+Subject: [PATCH v3] feat: add sales appointment scheduling
+
+---
+ .../appointments/appointments.hooks.ts        |  14 ++
+ .../appointments/appointments.repository.ts   |  50 ++++++
+ .../appointments/appointments.types.ts        |  24 +++
+ .../righttemp-os/src/pages/dashboard.tsx      |  43 ++++-
+ .../righttemp-os/src/pages/lead-detail.tsx    | 153 +++++++++++++++++-
+ artifacts/righttemp-os/src/pages/schedule.tsx |  33 +++-
+ .../20260816010000_add_sales_appointments.sql |  24 +++
+ 7 files changed, 333 insertions(+), 8 deletions(-)
+ create mode 100644 artifacts/righttemp-os/src/features/appointments/appointments.hooks.ts
+ create mode 100644 artifacts/righttemp-os/src/features/appointments/appointments.repository.ts
+ create mode 100644 artifacts/righttemp-os/src/features/appointments/appointments.types.ts
+ create mode 100644 supabase/migrations/20260816010000_add_sales_appointments.sql
+
+diff --git a/artifacts/righttemp-os/src/features/appointments/appointments.hooks.ts b/artifacts/righttemp-os/src/features/appointments/appointments.hooks.ts
+new file mode 100644
+index 0000000..5835ae2
+--- /dev/null
++++ b/artifacts/righttemp-os/src/features/appointments/appointments.hooks.ts
+@@ -0,0 +1,14 @@
++import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
++import { createAppointment, getAppointments, updateAppointmentStatus } from "./appointments.repository";
++import type { AppointmentInput, AppointmentStatus } from "./appointments.types";
++
++export const appointmentQueryKeys = { all: ["sales-appointments"] as const };
++export function useAppointments() { return useQuery({ queryKey: appointmentQueryKeys.all, queryFn: getAppointments }); }
++export function useCreateAppointment() {
++  const client = useQueryClient();
++  return useMutation({ mutationFn: (input: AppointmentInput) => createAppointment(input), onSuccess: () => client.invalidateQueries({ queryKey: appointmentQueryKeys.all }) });
++}
++export function useUpdateAppointmentStatus() {
++  const client = useQueryClient();
++  return useMutation({ mutationFn: ({ id, status }: { id: string; status: AppointmentStatus }) => updateAppointmentStatus(id, status), onSuccess: () => client.invalidateQueries({ queryKey: appointmentQueryKeys.all }) });
++}
+diff --git a/artifacts/righttemp-os/src/features/appointments/appointments.repository.ts b/artifacts/righttemp-os/src/features/appointments/appointments.repository.ts
+new file mode 100644
+index 0000000..4c55877
+--- /dev/null
++++ b/artifacts/righttemp-os/src/features/appointments/appointments.repository.ts
+@@ -0,0 +1,50 @@
++import { getCurrentOrganizationId } from "@/lib/get-current-organization-id";
++import { supabase } from "@/lib/supabase";
++import type { AppointmentInput, AppointmentStatus, AppointmentType, SalesAppointment } from "./appointments.types";
++
++const select = "id, lead_id, appointment_type, status, starts_at, ends_at, address, notes, leads(name, phone)";
++
++function map(row: any): SalesAppointment {
++  const lead = Array.isArray(row.leads) ? row.leads[0] : row.leads;
++  return {
++    id: row.id,
++    leadId: row.lead_id,
++    leadName: lead?.name ?? "Lead",
++    leadPhone: lead?.phone ?? "",
++    appointmentType: row.appointment_type as AppointmentType,
++    status: row.status as AppointmentStatus,
++    startsAt: row.starts_at,
++    endsAt: row.ends_at,
++    address: row.address,
++    notes: row.notes,
++  };
++}
++
++export async function getAppointments() {
++  const organizationId = await getCurrentOrganizationId();
++  const { data, error } = await supabase.from("sales_appointments").select(select).eq("organization_id", organizationId).order("starts_at");
++  if (error) throw new Error(`Unable to load appointments: ${error.message}`);
++  return (data ?? []).map(map);
++}
++
++export async function createAppointment(input: AppointmentInput) {
++  const organizationId = await getCurrentOrganizationId();
++  const { data, error } = await supabase.from("sales_appointments").insert({
++    organization_id: organizationId,
++    lead_id: input.leadId,
++    appointment_type: input.appointmentType,
++    starts_at: input.startsAt,
++    ends_at: input.endsAt,
++    address: input.address || null,
++    notes: input.notes || null,
++  }).select(select).single();
++  if (error) throw new Error(`Unable to schedule appointment: ${error.message}`);
++  return map(data);
++}
++
++export async function updateAppointmentStatus(id: string, status: AppointmentStatus) {
++  const organizationId = await getCurrentOrganizationId();
++  const { data, error } = await supabase.from("sales_appointments").update({ status }).eq("id", id).eq("organization_id", organizationId).select(select).single();
++  if (error) throw new Error(`Unable to update appointment: ${error.message}`);
++  return map(data);
++}
+diff --git a/artifacts/righttemp-os/src/features/appointments/appointments.types.ts b/artifacts/righttemp-os/src/features/appointments/appointments.types.ts
+new file mode 100644
+index 0000000..aef609b
+--- /dev/null
++++ b/artifacts/righttemp-os/src/features/appointments/appointments.types.ts
+@@ -0,0 +1,24 @@
++export type AppointmentType = "phone_call" | "in_home_estimate";
++export type AppointmentStatus = "scheduled" | "confirmed" | "completed" | "rescheduled" | "cancelled" | "no_show";
++
++export interface SalesAppointment {
++  id: string;
++  leadId: string;
++  leadName: string;
++  leadPhone: string;
++  appointmentType: AppointmentType;
++  status: AppointmentStatus;
++  startsAt: string;
++  endsAt: string;
++  address: string | null;
++  notes: string | null;
++}
++
++export interface AppointmentInput {
++  leadId: string;
++  appointmentType: AppointmentType;
++  startsAt: string;
++  endsAt: string;
++  address?: string;
++  notes?: string;
++}
+diff --git a/artifacts/righttemp-os/src/pages/dashboard.tsx b/artifacts/righttemp-os/src/pages/dashboard.tsx
+index 39d45bb..cad361f 100644
+--- a/artifacts/righttemp-os/src/pages/dashboard.tsx
++++ b/artifacts/righttemp-os/src/pages/dashboard.tsx
+@@ -3,6 +3,7 @@ import { PushNotifications } from "@/components/push-notifications";
+ import { useDashboardStats } from "@/features/dashboard/dashboard.hooks";
+ import { useLeads } from "@/features/leads/leads.hooks";
+ import { getViewedLeadIds } from "@/features/leads/lead-views";
++import { useAppointments } from "@/features/appointments/appointments.hooks";
+ import {
+   Card,
+   CardContent,
+@@ -41,6 +42,7 @@ import {
+ export default function DashboardPage() {
+   const { data: stats, isLoading, isError } = useDashboardStats();
+   const { data: leads = [] } = useLeads();
++  const { data: appointments = [] } = useAppointments();
+ 
+   if (isLoading) {
+     return (
+@@ -80,6 +82,13 @@ export default function DashboardPage() {
+   const unreadLeads = leads.filter(
+     (lead) => lead.status === "new" && !viewedLeadIds.has(lead.id),
+   );
++  const now = new Date();
++  const todaysAppointments = appointments
++    .filter((appointment) => {
++      const date = new Date(appointment.startsAt);
++      return date.toDateString() === now.toDateString() && !["cancelled", "rescheduled"].includes(appointment.status);
++    })
++    .sort((a, b) => new Date(a.startsAt).getTime() - new Date(b.startsAt).getTime());
+ 
+   const money = new Intl.NumberFormat("en-US", {
+     style: "currency",
+@@ -316,7 +325,39 @@ export default function DashboardPage() {
+         </div>
+       </section>
+ 
+-      {/* Today's Schedule */}
++      {/* Today's Sales Schedule */}
++      <Card>
++        <CardHeader className="flex flex-row items-center justify-between gap-3">
++          <div>
++            <CardTitle className="flex items-center gap-2"><PhoneForwarded className="h-5 w-5 text-blue-400" />Today’s Sales Schedule</CardTitle>
++            <CardDescription>{todaysAppointments.length} call{todaysAppointments.length === 1 ? "" : "s"} or estimate{todaysAppointments.length === 1 ? "" : "s"} today</CardDescription>
++          </div>
++          <Link href="/schedule" className="shrink-0 rounded-lg border border-blue-500/30 bg-blue-500/10 px-3 py-2 text-xs font-bold text-blue-300 hover:bg-blue-500/20">Calendar <ArrowUpRight className="inline h-3.5 w-3.5" /></Link>
++        </CardHeader>
++        <CardContent>
++          {todaysAppointments.length === 0 ? (
++            <p className="rounded-xl border border-dashed p-6 text-center text-sm text-muted-foreground">No sales appointments scheduled today.</p>
++          ) : (
++            <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-3">
++              {todaysAppointments.map((appointment) => (
++                <Link key={appointment.id} href={`/leads/${appointment.leadId}`} className="rounded-xl border border-blue-500/20 bg-blue-500/[0.05] p-4 transition-colors hover:bg-blue-500/[0.10]">
++                  <div className="flex items-start justify-between gap-2">
++                    <div>
++                      <p className="text-lg font-black">{new Date(appointment.startsAt).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" })}</p>
++                      <p className="mt-1 font-semibold">{appointment.leadName}</p>
++                      <p className="mt-1 text-xs text-muted-foreground">{appointment.appointmentType === "phone_call" ? "Phone Call" : "In-home Estimate"}</p>
++                    </div>
++                    <span className="rounded-full bg-blue-500/10 px-2 py-1 text-[10px] capitalize text-blue-300">{appointment.status.replace("_", " ")}</span>
++                  </div>
++                  {appointment.leadPhone && <p className="mt-3 text-xs font-mono text-muted-foreground">{appointment.leadPhone}</p>}
++                </Link>
++              ))}
++            </div>
++          )}
++        </CardContent>
++      </Card>
++
++      {/* Today's Job Schedule */}
+       <section>
+         <Card className="border-violet-500/20 bg-card/80 overflow-hidden">
+           <CardHeader className="flex flex-row items-start justify-between gap-4">
+diff --git a/artifacts/righttemp-os/src/pages/lead-detail.tsx b/artifacts/righttemp-os/src/pages/lead-detail.tsx
+index 44f67ff..18e62ff 100644
+--- a/artifacts/righttemp-os/src/pages/lead-detail.tsx
++++ b/artifacts/righttemp-os/src/pages/lead-detail.tsx
+@@ -1,4 +1,4 @@
+-import React, { useEffect, useRef } from "react";
++import React, { useEffect, useRef, useState } from "react";
+ import { useLocation, useParams } from "wouter";
+ import { useQueryClient } from "@tanstack/react-query";
+ import { useForm } from "react-hook-form";
+@@ -14,6 +14,8 @@ import {
+   FileText,
+   Home,
+   Clock,
++  PhoneCall,
++  MapPin,
+ } from "lucide-react";
+ 
+ import {
+@@ -28,6 +30,8 @@ import { customerQueryKeys } from "@/features/customers/customers.hooks";
+ import { estimateQueryKeys } from "@/features/estimates/estimates.hooks";
+ import type { Lead, LeadInput, LeadStatus } from "@/features/leads/leads.types";
+ import { useToast } from "@/hooks/use-toast";
++import { useAppointments, useCreateAppointment, useUpdateAppointmentStatus } from "@/features/appointments/appointments.hooks";
++import type { AppointmentStatus, AppointmentType } from "@/features/appointments/appointments.types";
+ 
+ import { Button } from "@/components/ui/button";
+ import {
+@@ -161,6 +165,14 @@ export default function LeadDetailPage() {
+   const updateLead = useUpdateLead();
+   const deleteLead = useDeleteLead();
+   const convertLead = useConvertLeadToCustomer();
++  const { data: appointments = [] } = useAppointments();
++  const createAppointment = useCreateAppointment();
++  const updateAppointmentStatus = useUpdateAppointmentStatus();
++  const [appointmentType, setAppointmentType] = useState<AppointmentType>("phone_call");
++  const [appointmentStart, setAppointmentStart] = useState("");
++  const [appointmentDuration, setAppointmentDuration] = useState("60");
++  const [appointmentAddress, setAppointmentAddress] = useState("");
++  const [appointmentNotes, setAppointmentNotes] = useState("");
+ 
+   const form = useForm<LeadUpdateValues>({
+     resolver: zodResolver(leadUpdateSchema),
+@@ -341,6 +353,38 @@ export default function LeadDetailPage() {
+     });
+   };
+ 
++  const handleBuildFullEstimate = () => {
++    const openEstimateBuilder = () => setLocation(`/estimates?leadId=${lead?.id ?? id}`);
++
++    if (!form.formState.isDirty) {
++      openEstimateBuilder();
++      return;
++    }
++
++    void form.handleSubmit((values) => {
++      const data: LeadInput = {
++        ...values,
++        email: values.email || undefined,
++        serviceType: values.serviceType || undefined,
++        followUpDate: values.followUpDate || undefined,
++        followUpTime: values.followUpDate ? values.followUpTime || "09:00" : undefined,
++      };
++
++      updateLead.mutate({ id, data }, {
++        onSuccess: (updatedLead) => {
++          updateCachedLead(updatedLead);
++          queryClient.invalidateQueries({ queryKey: dashboardQueryKeys.stats });
++          openEstimateBuilder();
++        },
++        onError: (error) => toast({
++          title: "Save the proposal first",
++          description: error instanceof Error ? error.message : "Unable to save these estimate details.",
++          variant: "destructive",
++        }),
++      });
++    })();
++  };
++
+   if (!id) {
+     return <div className="p-8 text-destructive">Invalid lead ID.</div>;
+   }
+@@ -382,6 +426,32 @@ export default function LeadDetailPage() {
+   const followUpIsOverdue = Boolean(
+     followUpAt && followUpAt.getTime() <= Date.now() && !["won", "lost"].includes(displayedStatus),
+   );
++  const leadAppointments = appointments.filter((appointment) => appointment.leadId === lead.id);
++
++  const scheduleAppointment = () => {
++    if (!appointmentStart) {
++      toast({ title: "Choose a date and time", variant: "destructive" });
++      return;
++    }
++    const start = new Date(appointmentStart);
++    const end = new Date(start.getTime() + Number(appointmentDuration) * 60_000);
++    createAppointment.mutate({
++      leadId: lead.id,
++      appointmentType,
++      startsAt: start.toISOString(),
++      endsAt: end.toISOString(),
++      address: appointmentType === "in_home_estimate" ? appointmentAddress : undefined,
++      notes: appointmentNotes,
++    }, {
++      onSuccess: () => {
++        setAppointmentStart("");
++        setAppointmentAddress("");
++        setAppointmentNotes("");
++        toast({ title: "Appointment scheduled", description: "It is now on the dashboard and calendar." });
++      },
++      onError: (error) => toast({ title: "Unable to schedule", description: error instanceof Error ? error.message : "Try again.", variant: "destructive" }),
++    });
++  };
+ 
+   return (
+     <div className="max-w-4xl mx-auto p-4 md:p-8 space-y-6 animate-in fade-in duration-300">
+@@ -599,6 +669,82 @@ export default function LeadDetailPage() {
+         </CardContent>
+       </Card>
+ 
++      {['contacted', 'qualified'].includes(displayedStatus) && (
++        <Card>
++          <CardHeader>
++            <CardTitle className="flex items-center gap-2"><Calendar className="h-5 w-5 text-primary" />Schedule Sales Appointment</CardTitle>
++            <CardDescription>Book a phone call or in-home estimate without creating an installation job.</CardDescription>
++          </CardHeader>
++          <CardContent className="space-y-5">
++            <div className="grid gap-4 sm:grid-cols-2">
++              <div className="space-y-2">
++                <Label>Appointment Type</Label>
++                <Select value={appointmentType} onValueChange={(value) => setAppointmentType(value as AppointmentType)}>
++                  <SelectTrigger><SelectValue /></SelectTrigger>
++                  <SelectContent>
++                    <SelectItem value="phone_call">Phone Call</SelectItem>
++                    <SelectItem value="in_home_estimate">In-home Estimate</SelectItem>
++                  </SelectContent>
++                </Select>
++              </div>
++              <div className="space-y-2">
++                <Label>Date & Time</Label>
++                <Input type="datetime-local" value={appointmentStart} onChange={(event) => setAppointmentStart(event.target.value)} />
++              </div>
++              <div className="space-y-2">
++                <Label>Duration</Label>
++                <Select value={appointmentDuration} onValueChange={setAppointmentDuration}>
++                  <SelectTrigger><SelectValue /></SelectTrigger>
++                  <SelectContent>
++                    <SelectItem value="30">30 minutes</SelectItem>
++                    <SelectItem value="60">1 hour</SelectItem>
++                    <SelectItem value="90">1.5 hours</SelectItem>
++                    <SelectItem value="120">2 hours</SelectItem>
++                  </SelectContent>
++                </Select>
++              </div>
++              {appointmentType === "in_home_estimate" && (
++                <div className="space-y-2">
++                  <Label>Address</Label>
++                  <Input value={appointmentAddress} onChange={(event) => setAppointmentAddress(event.target.value)} placeholder="Customer address" />
++                </div>
++              )}
++            </div>
++            <div className="space-y-2">
++              <Label>Appointment Notes</Label>
++              <Textarea value={appointmentNotes} onChange={(event) => setAppointmentNotes(event.target.value)} placeholder="System concerns, decision makers, access instructions..." />
++            </div>
++            <Button type="button" onClick={scheduleAppointment} disabled={createAppointment.isPending}>
++              <Calendar className="mr-2 h-4 w-4" />{createAppointment.isPending ? "Scheduling..." : "Schedule Appointment"}
++            </Button>
++
++            {leadAppointments.length > 0 && (
++              <div className="space-y-3 border-t pt-5">
++                <p className="text-sm font-semibold">Scheduled for this lead</p>
++                {leadAppointments.map((appointment) => (
++                  <div key={appointment.id} className="rounded-xl border p-4">
++                    <div className="flex flex-wrap items-start justify-between gap-3">
++                      <div>
++                        <p className="font-semibold">{appointment.appointmentType === "phone_call" ? "Phone Call" : "In-home Estimate"}</p>
++                        <p className="mt-1 text-sm text-muted-foreground">{new Date(appointment.startsAt).toLocaleString([], { dateStyle: "medium", timeStyle: "short" })}</p>
++                        {appointment.address && <p className="mt-1 flex items-center gap-1 text-sm text-muted-foreground"><MapPin className="h-3.5 w-3.5" />{appointment.address}</p>}
++                      </div>
++                      <Select value={appointment.status} onValueChange={(status) => updateAppointmentStatus.mutate({ id: appointment.id, status: status as AppointmentStatus })}>
++                        <SelectTrigger className="w-36"><SelectValue /></SelectTrigger>
++                        <SelectContent>
++                          <SelectItem value="scheduled">Scheduled</SelectItem><SelectItem value="confirmed">Confirmed</SelectItem><SelectItem value="completed">Completed</SelectItem><SelectItem value="rescheduled">Rescheduled</SelectItem><SelectItem value="cancelled">Cancelled</SelectItem><SelectItem value="no_show">No-show</SelectItem>
++                        </SelectContent>
++                      </Select>
++                    </div>
++                    {appointment.appointmentType === "phone_call" && lead.phone && <Button className="mt-3" size="sm" variant="outline" asChild><a href={`tel:${lead.phone}`}><PhoneCall className="mr-2 h-4 w-4" />Call {lead.name}</a></Button>}
++                  </div>
++                ))}
++              </div>
++            )}
++          </CardContent>
++        </Card>
++      )}
++
+       {isReplacementLead && (
+         <Card className="overflow-hidden border-primary/30">
+           <CardHeader className="bg-primary/5">
+@@ -656,9 +802,10 @@ export default function LeadDetailPage() {
+             <Button
+               type="button"
+               variant="outline"
+-              onClick={() => setLocation(`/estimates?leadId=${lead.id}`)}
++              onClick={handleBuildFullEstimate}
++              disabled={updateLead.isPending}
+             >
+-              <FileText className="w-4 h-4 mr-2" /> Build Full Estimate
++              <FileText className="w-4 h-4 mr-2" /> {updateLead.isPending ? "Saving Details..." : "Build Full Estimate"}
+             </Button>
+             <div className="space-y-2">
+               <Label>Estimate Price</Label>
+diff --git a/artifacts/righttemp-os/src/pages/schedule.tsx b/artifacts/righttemp-os/src/pages/schedule.tsx
+index dd5abd9..63dfcee 100644
+--- a/artifacts/righttemp-os/src/pages/schedule.tsx
++++ b/artifacts/righttemp-os/src/pages/schedule.tsx
+@@ -17,6 +17,7 @@ import { Button } from "@/components/ui/button";
+ import { Card, CardContent } from "@/components/ui/card";
+ import { useCustomers } from "@/features/customers/customers.hooks";
+ import { useJobs } from "@/features/jobs/jobs.hooks";
++import { useAppointments } from "@/features/appointments/appointments.hooks";
+ import type { JobStatus } from "@/features/jobs/jobs.types";
+ import { cn } from "@/lib/utils";
+ 
+@@ -36,6 +37,7 @@ const timeFormatter = new Intl.DateTimeFormat(undefined, {
+ export default function SchedulePage() {
+   const { data: jobs, isLoading, isError } = useJobs();
+   const { data: customers } = useCustomers();
++  const { data: appointments = [], isLoading: appointmentsLoading, isError: appointmentsError } = useAppointments();
+   const [selectedDate, setSelectedDate] = useState<Date>(startOfDay(new Date()));
+   const [visibleMonth, setVisibleMonth] = useState<Date>(startOfDay(new Date()));
+ 
+@@ -47,6 +49,9 @@ export default function SchedulePage() {
+     () => scheduledJobs.map((job) => startOfDay(new Date(job.scheduledStart!))),
+     [scheduledJobs],
+   );
++  const activeAppointments = useMemo(() => appointments.filter((appointment) => !["cancelled", "rescheduled"].includes(appointment.status)), [appointments]);
++  const selectedAppointments = useMemo(() => activeAppointments.filter((appointment) => isSameDay(new Date(appointment.startsAt), selectedDate)).sort((a, b) => new Date(a.startsAt).getTime() - new Date(b.startsAt).getTime()), [activeAppointments, selectedDate]);
++  const datesWithAppointments = useMemo(() => activeAppointments.map((appointment) => startOfDay(new Date(appointment.startsAt))), [activeAppointments]);
+   const selectedJobs = useMemo(
+     () =>
+       scheduledJobs
+@@ -82,7 +87,7 @@ export default function SchedulePage() {
+       <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
+         <div>
+           <h1 className="text-3xl font-bold tracking-tight">Schedule</h1>
+-          <p className="mt-2 text-muted-foreground">Tap a date to view installs and service jobs.</p>
++          <p className="mt-2 text-muted-foreground">Tap a date to view sales appointments, installs, and service jobs.</p>
+         </div>
+         <Button asChild>
+           <Link href={`/jobs/new?date=${format(selectedDate, "yyyy-MM-dd")}`}>
+@@ -116,6 +121,7 @@ export default function SchedulePage() {
+                 const selected = isSameDay(day, selectedDate);
+                 const today = isSameDay(day, new Date());
+                 const hasJobs = datesWithJobs.some((jobDate) => isSameDay(jobDate, day));
++                const hasAppointments = datesWithAppointments.some((appointmentDate) => isSameDay(appointmentDate, day));
+                 return (
+                   <button
+                     key={day.toISOString()}
+@@ -143,6 +149,7 @@ export default function SchedulePage() {
+                         )}
+                       />
+                     )}
++                    {hasAppointments && <span className={cn("absolute bottom-1 right-1 h-1.5 w-1.5 rounded-full", selected ? "bg-primary-foreground" : "bg-blue-400")} />}
+                   </button>
+                 );
+               })}
+@@ -161,12 +168,13 @@ export default function SchedulePage() {
+             <h2 className="mt-1 text-2xl font-bold">{format(selectedDate, "EEEE, MMMM d")}</h2>
+             <p className="text-sm text-muted-foreground">
+               {selectedJobs.length} {selectedJobs.length === 1 ? "job" : "jobs"} scheduled
++              {selectedAppointments.length > 0 ? ` · ${selectedAppointments.length} sales appointment${selectedAppointments.length === 1 ? "" : "s"}` : ""}
+             </p>
+           </div>
+ 
+-          {isLoading && <Card><CardContent className="py-12 text-center text-muted-foreground">Loading schedule...</CardContent></Card>}
+-          {isError && <Card><CardContent className="py-12 text-center text-destructive">Unable to load the schedule.</CardContent></Card>}
+-          {!isLoading && !isError && selectedJobs.length === 0 && (
++          {(isLoading || appointmentsLoading) && <Card><CardContent className="py-12 text-center text-muted-foreground">Loading schedule...</CardContent></Card>}
++          {(isError || appointmentsError) && <Card><CardContent className="py-12 text-center text-destructive">Unable to load the schedule.</CardContent></Card>}
++          {!isLoading && !appointmentsLoading && !isError && !appointmentsError && selectedJobs.length === 0 && selectedAppointments.length === 0 && (
+             <Card>
+               <CardContent className="py-12 text-center">
+                 <CalendarDays className="mx-auto mb-3 h-10 w-10 text-muted-foreground" />
+@@ -179,6 +187,23 @@ export default function SchedulePage() {
+             </Card>
+           )}
+ 
++          {selectedAppointments.map((appointment) => (
++            <Link key={appointment.id} href={`/leads/${appointment.leadId}`}>
++              <Card className="cursor-pointer border-blue-500/25 bg-blue-500/[0.04] transition-colors hover:border-blue-500/50">
++                <CardContent className="p-5">
++                  <div className="flex items-start justify-between gap-3">
++                    <div>
++                      <p className="text-lg font-semibold">{appointment.appointmentType === "phone_call" ? "Phone Call" : "In-home Estimate"}</p>
++                      <p className="text-sm text-muted-foreground">{appointment.leadName}</p>
++                      <p className="mt-3 flex items-center gap-2 text-sm"><Clock3 className="h-4 w-4 text-blue-400" />{timeFormatter.format(new Date(appointment.startsAt))} – {timeFormatter.format(new Date(appointment.endsAt))}</p>
++                    </div>
++                    <span className="rounded-full border border-blue-500/30 bg-blue-500/10 px-2.5 py-1 text-xs capitalize text-blue-400">{appointment.status.replace("_", " ")}</span>
++                  </div>
++                </CardContent>
++              </Card>
++            </Link>
++          ))}
++
+           {selectedJobs.map((job) => (
+             <Link key={job.id} href={`/jobs/${job.id}`}>
+               <Card className="cursor-pointer transition-colors hover:border-primary/50">
+diff --git a/supabase/migrations/20260816010000_add_sales_appointments.sql b/supabase/migrations/20260816010000_add_sales_appointments.sql
+new file mode 100644
+index 0000000..9bc2d69
+--- /dev/null
++++ b/supabase/migrations/20260816010000_add_sales_appointments.sql
+@@ -0,0 +1,24 @@
++CREATE TABLE IF NOT EXISTS public.sales_appointments (
++  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
++  organization_id UUID NOT NULL REFERENCES public.organizations(id) ON DELETE CASCADE,
++  lead_id UUID NOT NULL REFERENCES public.leads(id) ON DELETE CASCADE,
++  appointment_type TEXT NOT NULL CHECK (appointment_type IN ('phone_call', 'in_home_estimate')),
++  status TEXT NOT NULL DEFAULT 'scheduled' CHECK (status IN ('scheduled', 'confirmed', 'completed', 'rescheduled', 'cancelled', 'no_show')),
++  starts_at TIMESTAMPTZ NOT NULL,
++  ends_at TIMESTAMPTZ NOT NULL,
++  address TEXT,
++  notes TEXT,
++  created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
++  updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
++  CHECK (ends_at > starts_at)
++);
++
++ALTER TABLE public.sales_appointments ENABLE ROW LEVEL SECURITY;
++CREATE POLICY "Org members can select sales appointments" ON public.sales_appointments FOR SELECT TO authenticated USING (private.is_org_member(organization_id));
++CREATE POLICY "Org members can insert sales appointments" ON public.sales_appointments FOR INSERT TO authenticated WITH CHECK (private.is_org_member(organization_id));
++CREATE POLICY "Org members can update sales appointments" ON public.sales_appointments FOR UPDATE TO authenticated USING (private.is_org_member(organization_id)) WITH CHECK (private.is_org_member(organization_id));
++CREATE POLICY "Org admins can delete sales appointments" ON public.sales_appointments FOR DELETE TO authenticated USING (private.is_org_role(organization_id, 'admin'));
++CREATE INDEX IF NOT EXISTS idx_sales_appointments_org_start ON public.sales_appointments(organization_id, starts_at);
++CREATE INDEX IF NOT EXISTS idx_sales_appointments_lead ON public.sales_appointments(lead_id);
++DROP TRIGGER IF EXISTS trg_sales_appointments_updated_at ON public.sales_appointments;
++CREATE TRIGGER trg_sales_appointments_updated_at BEFORE UPDATE ON public.sales_appointments FOR EACH ROW EXECUTE FUNCTION public.set_updated_at();
+-- 
+2.51.1
+

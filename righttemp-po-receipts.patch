@@ -1,0 +1,408 @@
+From d4ca6ace79513a30ceda54407d36e42e0a270c60 Mon Sep 17 00:00:00 2001
+From: Codex <noreply@openai.com>
+Date: Sun, 2 Aug 2026 20:17:15 +0000
+Subject: [PATCH] feat: attach receipts to job purchase orders
+
+---
+ .../src/components/job-receipt-manager.tsx    | 156 ++++++++++++++++++
+ .../job-receipts/job-receipts.hooks.ts        |  27 +++
+ .../job-receipts/job-receipts.repository.ts   |  97 +++++++++++
+ .../job-receipts/job-receipts.types.ts        |  25 +++
+ .../purchase-orders.repository.ts             |   3 +-
+ .../purchase-orders/purchase-orders.types.ts  |   1 +
+ .../src/pages/purchase-orders.tsx             |   7 +
+ 7 files changed, 315 insertions(+), 1 deletion(-)
+ create mode 100644 artifacts/righttemp-os/src/components/job-receipt-manager.tsx
+ create mode 100644 artifacts/righttemp-os/src/features/job-receipts/job-receipts.hooks.ts
+ create mode 100644 artifacts/righttemp-os/src/features/job-receipts/job-receipts.repository.ts
+ create mode 100644 artifacts/righttemp-os/src/features/job-receipts/job-receipts.types.ts
+
+diff --git a/artifacts/righttemp-os/src/components/job-receipt-manager.tsx b/artifacts/righttemp-os/src/components/job-receipt-manager.tsx
+new file mode 100644
+index 0000000..e8988ff
+--- /dev/null
++++ b/artifacts/righttemp-os/src/components/job-receipt-manager.tsx
+@@ -0,0 +1,156 @@
++import { useRef } from "react";
++import { useQueryClient } from "@tanstack/react-query";
++import { Camera, ExternalLink, ReceiptText, Trash2, Upload } from "lucide-react";
++import { Button } from "@/components/ui/button";
++import {
++  jobReceiptQueryKeys,
++  useDeleteJobReceipt,
++  useJobReceipts,
++  useUploadJobReceipt,
++} from "@/features/job-receipts/job-receipts.hooks";
++import { openJobReceipt } from "@/features/job-receipts/job-receipts.repository";
++import { useToast } from "@/hooks/use-toast";
++
++export function JobReceiptManager({
++  jobId,
++  customerId,
++  vendor,
++  amount,
++}: {
++  jobId: string;
++  customerId: string;
++  vendor?: string;
++  amount?: number;
++}) {
++  const uploadInput = useRef<HTMLInputElement>(null);
++  const cameraInput = useRef<HTMLInputElement>(null);
++  const queryClient = useQueryClient();
++  const { toast } = useToast();
++  const { data: receipts, isLoading } = useJobReceipts(jobId);
++  const uploadReceipt = useUploadJobReceipt();
++  const deleteReceipt = useDeleteJobReceipt();
++
++  const upload = (file?: File) => {
++    if (!file) return;
++    uploadReceipt.mutate(
++      { jobId, customerId, file, vendor, amount },
++      {
++        onSuccess: () => {
++          queryClient.invalidateQueries({ queryKey: jobReceiptQueryKeys.list(jobId) });
++          if (uploadInput.current) uploadInput.current.value = "";
++          if (cameraInput.current) cameraInput.current.value = "";
++          toast({ title: "Receipt saved", description: "The receipt is attached to this job PO." });
++        },
++        onError: (error) =>
++          toast({ title: "Receipt upload failed", description: error.message, variant: "destructive" }),
++      },
++    );
++  };
++
++  const open = async (storagePath: string) => {
++    try {
++      const url = await openJobReceipt(storagePath);
++      window.open(url, "_blank", "noopener,noreferrer");
++    } catch (error) {
++      toast({
++        title: "Unable to open receipt",
++        description: error instanceof Error ? error.message : "The receipt could not be opened.",
++        variant: "destructive",
++      });
++    }
++  };
++
++  return (
++    <div className="space-y-3 border-t pt-4">
++      <div className="flex items-center justify-between gap-3">
++        <div>
++          <p className="flex items-center gap-2 text-sm font-semibold">
++            <ReceiptText className="h-4 w-4 text-primary" /> Receipts
++          </p>
++          <p className="text-xs text-muted-foreground">Upload a file or photograph the receipt.</p>
++        </div>
++        <div className="flex gap-2">
++          <input
++            ref={uploadInput}
++            type="file"
++            className="hidden"
++            accept="image/*,application/pdf"
++            onChange={(event) => upload(event.target.files?.[0])}
++          />
++          <input
++            ref={cameraInput}
++            type="file"
++            className="hidden"
++            accept="image/*"
++            capture="environment"
++            onChange={(event) => upload(event.target.files?.[0])}
++          />
++          <Button
++            type="button"
++            size="sm"
++            variant="outline"
++            disabled={uploadReceipt.isPending}
++            onClick={() => uploadInput.current?.click()}
++          >
++            <Upload className="mr-2 h-4 w-4" /> Upload
++          </Button>
++          <Button
++            type="button"
++            size="sm"
++            variant="outline"
++            disabled={uploadReceipt.isPending}
++            onClick={() => cameraInput.current?.click()}
++          >
++            <Camera className="mr-2 h-4 w-4" /> Camera
++          </Button>
++        </div>
++      </div>
++
++      {uploadReceipt.isPending && (
++        <p className="text-xs text-muted-foreground">Uploading receipt...</p>
++      )}
++      {isLoading && <p className="text-xs text-muted-foreground">Loading receipts...</p>}
++      {!isLoading && (receipts ?? []).length === 0 && (
++        <p className="rounded-md border border-dashed p-3 text-center text-xs text-muted-foreground">
++          No receipts attached.
++        </p>
++      )}
++      <div className="space-y-2">
++        {(receipts ?? []).map((receipt) => (
++          <div key={receipt.id} className="flex items-center justify-between gap-3 rounded-md border p-3">
++            <div className="min-w-0">
++              <p className="truncate text-sm font-medium">{receipt.fileName}</p>
++              <p className="text-xs text-muted-foreground">
++                {new Date(receipt.createdAt).toLocaleDateString()}
++                {receipt.amount !== null ? ` · $${receipt.amount.toFixed(2)}` : ""}
++              </p>
++            </div>
++            <div className="flex gap-1">
++              <Button type="button" size="icon" variant="ghost" onClick={() => open(receipt.storagePath)}>
++                <ExternalLink className="h-4 w-4" />
++              </Button>
++              <Button
++                type="button"
++                size="icon"
++                variant="ghost"
++                className="text-destructive"
++                disabled={deleteReceipt.isPending}
++                onClick={() => {
++                  if (!window.confirm(`Delete ${receipt.fileName}?`)) return;
++                  deleteReceipt.mutate(receipt, {
++                    onSuccess: () =>
++                      queryClient.invalidateQueries({ queryKey: jobReceiptQueryKeys.list(jobId) }),
++                    onError: (error) =>
++                      toast({ title: "Delete failed", description: error.message, variant: "destructive" }),
++                  });
++                }}
++              >
++                <Trash2 className="h-4 w-4" />
++              </Button>
++            </div>
++          </div>
++        ))}
++      </div>
++    </div>
++  );
++}
+diff --git a/artifacts/righttemp-os/src/features/job-receipts/job-receipts.hooks.ts b/artifacts/righttemp-os/src/features/job-receipts/job-receipts.hooks.ts
+new file mode 100644
+index 0000000..82a2d3a
+--- /dev/null
++++ b/artifacts/righttemp-os/src/features/job-receipts/job-receipts.hooks.ts
+@@ -0,0 +1,27 @@
++import { useMutation, useQuery } from "@tanstack/react-query";
++import {
++  deleteJobReceipt,
++  getJobReceipts,
++  uploadJobReceipt,
++} from "./job-receipts.repository";
++import type { JobReceipt } from "./job-receipts.types";
++
++export const jobReceiptQueryKeys = {
++  list: (jobId: string) => ["job-receipts", jobId] as const,
++};
++
++export function useJobReceipts(jobId: string) {
++  return useQuery({
++    queryKey: jobReceiptQueryKeys.list(jobId),
++    queryFn: () => getJobReceipts(jobId),
++    enabled: !!jobId,
++  });
++}
++
++export function useUploadJobReceipt() {
++  return useMutation({ mutationFn: uploadJobReceipt });
++}
++
++export function useDeleteJobReceipt() {
++  return useMutation({ mutationFn: (receipt: JobReceipt) => deleteJobReceipt(receipt) });
++}
+diff --git a/artifacts/righttemp-os/src/features/job-receipts/job-receipts.repository.ts b/artifacts/righttemp-os/src/features/job-receipts/job-receipts.repository.ts
+new file mode 100644
+index 0000000..94739c2
+--- /dev/null
++++ b/artifacts/righttemp-os/src/features/job-receipts/job-receipts.repository.ts
+@@ -0,0 +1,97 @@
++import { getCurrentOrganizationId } from "@/lib/get-current-organization-id";
++import { supabase } from "@/lib/supabase";
++import type { JobReceipt, JobReceiptRow } from "./job-receipts.types";
++
++const bucket = "job-documents";
++
++function mapReceipt(row: JobReceiptRow): JobReceipt {
++  return {
++    id: row.id,
++    jobId: row.job_id,
++    customerId: row.customer_id,
++    fileName: row.file_name,
++    storagePath: row.storage_path,
++    amount: row.amount === null ? null : Number(row.amount),
++    vendor: row.vendor,
++    documentDate: row.document_date,
++    notes: row.notes,
++    createdAt: row.created_at,
++  };
++}
++
++export async function getJobReceipts(jobId: string): Promise<JobReceipt[]> {
++  const organizationId = await getCurrentOrganizationId();
++  const { data, error } = await supabase
++    .from("job_documents")
++    .select("id, job_id, customer_id, file_name, storage_path, amount, vendor, document_date, notes, created_at")
++    .eq("organization_id", organizationId)
++    .eq("job_id", jobId)
++    .eq("document_type", "vendor_receipt")
++    .order("created_at", { ascending: false });
++  if (error) throw new Error(`Unable to load receipts: ${error.message}`);
++  return ((data ?? []) as JobReceiptRow[]).map(mapReceipt);
++}
++
++export async function uploadJobReceipt({
++  jobId,
++  customerId,
++  file,
++  vendor,
++  amount,
++}: {
++  jobId: string;
++  customerId: string;
++  file: File;
++  vendor?: string;
++  amount?: number;
++}): Promise<void> {
++  const organizationId = await getCurrentOrganizationId();
++  const { data: authData } = await supabase.auth.getUser();
++  if (!authData.user) throw new Error("You must be signed in to upload receipts.");
++
++  const safeName = file.name.replace(/[^a-zA-Z0-9._-]/g, "-");
++  const storagePath = `${organizationId}/${jobId}/${crypto.randomUUID()}-${safeName}`;
++  const { error: uploadError } = await supabase.storage
++    .from(bucket)
++    .upload(storagePath, file, {
++      contentType: file.type || "application/octet-stream",
++      upsert: false,
++    });
++  if (uploadError) throw new Error(`Unable to upload receipt: ${uploadError.message}`);
++
++  const { error: metadataError } = await supabase.from("job_documents").insert({
++    organization_id: organizationId,
++    job_id: jobId,
++    customer_id: customerId,
++    document_type: "vendor_receipt",
++    file_name: file.name,
++    storage_path: storagePath,
++    vendor: vendor || null,
++    amount: amount ?? null,
++    document_date: new Date().toISOString().slice(0, 10),
++    uploaded_by: authData.user.id,
++  });
++  if (metadataError) {
++    await supabase.storage.from(bucket).remove([storagePath]);
++    throw new Error(`Unable to save receipt record: ${metadataError.message}`);
++  }
++}
++
++export async function openJobReceipt(storagePath: string): Promise<string> {
++  const { data, error } = await supabase.storage.from(bucket).createSignedUrl(storagePath, 60);
++  if (error) throw new Error(`Unable to open receipt: ${error.message}`);
++  return data.signedUrl;
++}
++
++export async function deleteJobReceipt(receipt: JobReceipt): Promise<void> {
++  const organizationId = await getCurrentOrganizationId();
++  const { error: metadataError } = await supabase
++    .from("job_documents")
++    .delete()
++    .eq("id", receipt.id)
++    .eq("organization_id", organizationId);
++  if (metadataError) throw new Error(`Unable to delete receipt record: ${metadataError.message}`);
++
++  const { error: storageError } = await supabase.storage.from(bucket).remove([receipt.storagePath]);
++  if (storageError) throw new Error(`Receipt record was deleted, but its file could not be removed: ${storageError.message}`);
++}
+diff --git a/artifacts/righttemp-os/src/features/job-receipts/job-receipts.types.ts b/artifacts/righttemp-os/src/features/job-receipts/job-receipts.types.ts
+new file mode 100644
+index 0000000..d4cc1f1
+--- /dev/null
++++ b/artifacts/righttemp-os/src/features/job-receipts/job-receipts.types.ts
+@@ -0,0 +1,25 @@
++export interface JobReceipt {
++  id: string;
++  jobId: string;
++  customerId: string;
++  fileName: string;
++  storagePath: string;
++  amount: number | null;
++  vendor: string | null;
++  documentDate: string | null;
++  notes: string | null;
++  createdAt: string;
++}
++
++export interface JobReceiptRow {
++  id: string;
++  job_id: string;
++  customer_id: string;
++  file_name: string;
++  storage_path: string;
++  amount: number | null;
++  vendor: string | null;
++  document_date: string | null;
++  notes: string | null;
++  created_at: string;
++}
+diff --git a/artifacts/righttemp-os/src/features/purchase-orders/purchase-orders.repository.ts b/artifacts/righttemp-os/src/features/purchase-orders/purchase-orders.repository.ts
+index f6604e2..f82b155 100644
+--- a/artifacts/righttemp-os/src/features/purchase-orders/purchase-orders.repository.ts
++++ b/artifacts/righttemp-os/src/features/purchase-orders/purchase-orders.repository.ts
+@@ -6,13 +6,14 @@ export async function getPurchaseOrders(): Promise<PurchaseOrder[]> {
+   const organizationId = await getCurrentOrganizationId();
+   const jobsResult = await supabase
+     .from("jobs")
+-    .select("id, title, po_number, po_status, po_vendor, po_amount, po_notes, created_at, customers!jobs_customer_id_fkey(name)")
++    .select("id, customer_id, title, po_number, po_status, po_vendor, po_amount, po_notes, created_at, customers!jobs_customer_id_fkey(name)")
+     .eq("organization_id", organizationId);
+   if (jobsResult.error) throw new Error(`Unable to load job POs: ${jobsResult.error.message}`);
+   const jobOrders: PurchaseOrder[] = (jobsResult.data ?? []).map((row) => {
+     const relation = Array.isArray(row.customers) ? row.customers[0] : row.customers;
+     return {
+       id: row.id,
++      customerId: row.customer_id,
+       poNumber: row.po_number,
+       title: row.title,
+       customerName: relation?.name ?? "Unknown customer",
+diff --git a/artifacts/righttemp-os/src/features/purchase-orders/purchase-orders.types.ts b/artifacts/righttemp-os/src/features/purchase-orders/purchase-orders.types.ts
+index d434751..00467ff 100644
+--- a/artifacts/righttemp-os/src/features/purchase-orders/purchase-orders.types.ts
++++ b/artifacts/righttemp-os/src/features/purchase-orders/purchase-orders.types.ts
+@@ -1,6 +1,7 @@
+ export type PoStatus = "pending" | "ordered" | "received" | "closed" | "cancelled";
+ export interface PurchaseOrder {
+   id: string;
++  customerId: string;
+   poNumber: string;
+   title: string;
+   customerName: string;
+diff --git a/artifacts/righttemp-os/src/pages/purchase-orders.tsx b/artifacts/righttemp-os/src/pages/purchase-orders.tsx
+index dbf1dbc..34fbee2 100644
+--- a/artifacts/righttemp-os/src/pages/purchase-orders.tsx
++++ b/artifacts/righttemp-os/src/pages/purchase-orders.tsx
+@@ -10,6 +10,7 @@ import { Textarea } from "@/components/ui/textarea";
+ import { purchaseOrderQueryKeys, usePurchaseOrders, useUpdatePurchaseOrder } from "@/features/purchase-orders/purchase-orders.hooks";
+ import type { PoStatus, PurchaseOrder } from "@/features/purchase-orders/purchase-orders.types";
+ import { useToast } from "@/hooks/use-toast";
++import { JobReceiptManager } from "@/components/job-receipt-manager";
+ 
+ function PurchaseOrderCard({ order }: { order: PurchaseOrder }) {
+   const queryClient = useQueryClient();
+@@ -60,6 +61,12 @@ function PurchaseOrderCard({ order }: { order: PurchaseOrder }) {
+         </div>
+         <div className="space-y-2"><Label>PO Notes</Label><Textarea value={notes} onChange={(e) => setNotes(e.target.value)} placeholder="Equipment ordered, pickup date, model numbers..." /></div>
+         <Button size="sm" onClick={save} disabled={updateOrder.isPending}><Save className="h-4 w-4 mr-2" />{updateOrder.isPending ? "Saving..." : "Save PO"}</Button>
++        <JobReceiptManager
++          jobId={order.id}
++          customerId={order.customerId}
++          vendor={vendor}
++          amount={amount ? Number(amount) : undefined}
++        />
+       </CardContent>
+     </Card>
+   );
+-- 
+2.51.1
+

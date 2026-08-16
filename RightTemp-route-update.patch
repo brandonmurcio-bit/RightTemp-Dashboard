@@ -1,0 +1,39 @@
+From 518b8ffbc2fc665d67fe7542a97d76f551efb568 Mon Sep 17 00:00:00 2001
+From: Replit Agent <agent@replit.com>
+Date: Sun, 9 Aug 2026 00:32:53 +0000
+Subject: [PATCH] feat: route public site and private app
+
+---
+ artifacts/righttemp-os/src/App.tsx | 9 +++++++--
+ 1 file changed, 7 insertions(+), 2 deletions(-)
+
+diff --git a/artifacts/righttemp-os/src/App.tsx b/artifacts/righttemp-os/src/App.tsx
+index 62cb0a1..b7281fa 100644
+--- a/artifacts/righttemp-os/src/App.tsx
++++ b/artifacts/righttemp-os/src/App.tsx
+@@ -97,7 +97,9 @@ function Router() {
+     };
+   }, []);
+ 
+-  if (window.location.pathname.replace(/\/$/, "").endsWith("/service")) {
++  const pathname = window.location.pathname.replace(/\/$/, "") || "/";
++
++  if (pathname === "/" || pathname === "/service") {
+     return <ServiceLandingPage />;
+   }
+ 
+@@ -119,7 +121,10 @@ function Router() {
+ }
+ 
+ function App() {
+-  const routerBase = import.meta.env.BASE_URL.replace(/\/$/, "");
++  const pathname = window.location.pathname.replace(/\/$/, "") || "/";
++  const routerBase = pathname === "/app" || pathname.startsWith("/app/")
++    ? "/app"
++    : import.meta.env.BASE_URL.replace(/\/$/, "");
+ 
+   return (
+     <QueryClientProvider client={queryClient}>
+-- 
+2.51.1
+

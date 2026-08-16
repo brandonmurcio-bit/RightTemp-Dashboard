@@ -1,0 +1,28 @@
+From 42b9e6fda80d1617e6fcc58da85f2612e40795bd Mon Sep 17 00:00:00 2001
+From: Codex <noreply@openai.com>
+Date: Sun, 2 Aug 2026 19:01:17 +0000
+Subject: [PATCH] fix: align navigation with sales workflow
+
+---
+ artifacts/righttemp-os/src/components/layout.tsx | 4 ++--
+ 1 file changed, 2 insertions(+), 2 deletions(-)
+
+diff --git a/artifacts/righttemp-os/src/components/layout.tsx b/artifacts/righttemp-os/src/components/layout.tsx
+index 2360860..ae5d8a7 100644
+--- a/artifacts/righttemp-os/src/components/layout.tsx
++++ b/artifacts/righttemp-os/src/components/layout.tsx
+@@ -15,9 +15,9 @@ export function Layout({ children }: { children: React.ReactNode }) {
+   const navItems = [
+     { label: "Dashboard", path: "/", icon: LayoutDashboard },
+     { label: "Leads", path: "/leads", icon: Activity },
+-    { label: "Customers", path: "/customers", icon: Users },
+-    { label: "Jobs", path: "/jobs", icon: CalendarDays },
+     { label: "Estimates", path: "/estimates", icon: FileText },
++    { label: "Jobs", path: "/jobs", icon: CalendarDays },
++    { label: "Customers", path: "/customers", icon: Users },
+   ];
+ 
+   return (
+-- 
+2.51.1
+

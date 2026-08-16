@@ -1,0 +1,651 @@
+From dc1073e40fdd0514a078e9e2773c6057af980b93 Mon Sep 17 00:00:00 2001
+From: Codex <noreply@openai.com>
+Date: Sun, 2 Aug 2026 21:23:39 +0000
+Subject: [PATCH] feat: add invoicing and payment tracking
+
+---
+ .../src/components/job-invoice-card.tsx       | 121 +++++++++++++
+ .../dashboard/dashboard.repository.ts         |  17 +-
+ .../src/features/dashboard/dashboard.types.ts |   1 +
+ .../src/features/invoices/invoices.hooks.ts   |  16 ++
+ .../features/invoices/invoices.repository.ts  | 130 ++++++++++++++
+ .../src/features/invoices/invoices.types.ts   |  37 ++++
+ .../righttemp-os/src/pages/dashboard.tsx      |  10 +-
+ .../righttemp-os/src/pages/job-detail.tsx     |   2 +
+ ...12000_add_invoice_payment_transactions.sql | 162 ++++++++++++++++++
+ 9 files changed, 490 insertions(+), 6 deletions(-)
+ create mode 100644 artifacts/righttemp-os/src/components/job-invoice-card.tsx
+ create mode 100644 artifacts/righttemp-os/src/features/invoices/invoices.hooks.ts
+ create mode 100644 artifacts/righttemp-os/src/features/invoices/invoices.repository.ts
+ create mode 100644 artifacts/righttemp-os/src/features/invoices/invoices.types.ts
+ create mode 100644 supabase/migrations/20260802212000_add_invoice_payment_transactions.sql
+
+diff --git a/artifacts/righttemp-os/src/components/job-invoice-card.tsx b/artifacts/righttemp-os/src/components/job-invoice-card.tsx
+new file mode 100644
+index 0000000..2b76583
+--- /dev/null
++++ b/artifacts/righttemp-os/src/components/job-invoice-card.tsx
+@@ -0,0 +1,121 @@
++import { useState } from "react";
++import { useQueryClient } from "@tanstack/react-query";
++import { Banknote, CheckCircle2, FileText, Plus, Send, Trash2 } from "lucide-react";
++import { Badge } from "@/components/ui/badge";
++import { Button } from "@/components/ui/button";
++import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
++import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
++import { Input } from "@/components/ui/input";
++import { Label } from "@/components/ui/label";
++import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
++import { Textarea } from "@/components/ui/textarea";
++import { dashboardQueryKeys } from "@/features/dashboard/dashboard.hooks";
++import { invoiceQueryKeys, useCreateInvoice, useDeletePaymentTransaction, useJobInvoice, useMarkInvoiceSent, useRecordPayment, useVoidInvoice } from "@/features/invoices/invoices.hooks";
++import type { JobInvoice, PaymentMethod } from "@/features/invoices/invoices.types";
++import { useToast } from "@/hooks/use-toast";
++
++const money = new Intl.NumberFormat("en-US", { style: "currency", currency: "USD" });
++
++function PaymentDialog({ invoice }: { invoice: JobInvoice }) {
++  const [open, setOpen] = useState(false);
++  const [amount, setAmount] = useState(String(invoice.balanceDue));
++  const [method, setMethod] = useState<PaymentMethod>("card");
++  const [date, setDate] = useState(new Date().toISOString().slice(0, 10));
++  const [reference, setReference] = useState("");
++  const [notes, setNotes] = useState("");
++  const recordPayment = useRecordPayment();
++  const queryClient = useQueryClient();
++  const { toast } = useToast();
++
++  const save = () => {
++    const numericAmount = Number(amount);
++    if (!Number.isFinite(numericAmount) || numericAmount <= 0 || numericAmount > invoice.balanceDue) {
++      toast({ title: "Enter a payment no greater than the remaining balance.", variant: "destructive" });
++      return;
++    }
++    recordPayment.mutate({ invoice, input: { amount: numericAmount, paymentMethod: method, paymentDate: date, reference: reference.trim() || undefined, notes: notes.trim() || undefined } }, {
++      onSuccess: () => {
++        queryClient.invalidateQueries({ queryKey: invoiceQueryKeys.job(invoice.jobId) });
++        queryClient.invalidateQueries({ queryKey: dashboardQueryKeys.stats });
++        setOpen(false);
++        toast({ title: "Payment recorded", description: `${money.format(numericAmount)} added to ${invoice.invoiceNumber}.` });
++      },
++      onError: (error) => toast({ title: "Payment failed", description: error.message, variant: "destructive" }),
++    });
++  };
++
++  return (
++    <Dialog open={open} onOpenChange={setOpen}>
++      <DialogTrigger asChild><Button disabled={invoice.status === "void" || invoice.balanceDue <= 0}><Plus className="mr-2 h-4 w-4" />Record Payment</Button></DialogTrigger>
++      <DialogContent>
++        <DialogHeader><DialogTitle>Record Payment</DialogTitle></DialogHeader>
++        <div className="space-y-4">
++          <div className="rounded-lg border p-3 text-sm"><span className="text-muted-foreground">Balance due: </span><strong>{money.format(invoice.balanceDue)}</strong></div>
++          <div className="space-y-2"><Label>Amount</Label><Input type="number" min="0.01" max={invoice.balanceDue} step="0.01" value={amount} onChange={(event) => setAmount(event.target.value)} /></div>
++          <div className="grid gap-3 sm:grid-cols-2">
++            <div className="space-y-2"><Label>Method</Label><Select value={method} onValueChange={(value) => setMethod(value as PaymentMethod)}><SelectTrigger><SelectValue /></SelectTrigger><SelectContent><SelectItem value="cash">Cash</SelectItem><SelectItem value="check">Check</SelectItem><SelectItem value="card">Card</SelectItem><SelectItem value="ach">ACH</SelectItem><SelectItem value="financing">Financing</SelectItem><SelectItem value="other">Other</SelectItem></SelectContent></Select></div>
++            <div className="space-y-2"><Label>Date</Label><Input type="date" value={date} onChange={(event) => setDate(event.target.value)} /></div>
++          </div>
++          <div className="space-y-2"><Label>Reference / check number</Label><Input value={reference} onChange={(event) => setReference(event.target.value)} /></div>
++          <div className="space-y-2"><Label>Notes</Label><Textarea value={notes} onChange={(event) => setNotes(event.target.value)} /></div>
++          <Button className="w-full" onClick={save} disabled={recordPayment.isPending}>{recordPayment.isPending ? "Recording..." : "Save Payment"}</Button>
++        </div>
++      </DialogContent>
++    </Dialog>
++  );
++}
++
++export function JobInvoiceCard({ jobId }: { jobId: string }) {
++  const { data: invoice, isLoading, isError } = useJobInvoice(jobId);
++  const createInvoice = useCreateInvoice();
++  const markSent = useMarkInvoiceSent();
++  const voidInvoice = useVoidInvoice();
++  const deletePayment = useDeletePaymentTransaction();
++  const queryClient = useQueryClient();
++  const { toast } = useToast();
++
++  const refresh = () => {
++    queryClient.invalidateQueries({ queryKey: invoiceQueryKeys.job(jobId) });
++    queryClient.invalidateQueries({ queryKey: dashboardQueryKeys.stats });
++  };
++  const fail = (title: string) => (error: Error) => toast({ title, description: error.message, variant: "destructive" as const });
++
++  if (isLoading) return <Card><CardContent className="py-8 text-muted-foreground">Loading invoice...</CardContent></Card>;
++  if (isError) return <Card><CardContent className="py-8 text-destructive">Unable to load invoice.</CardContent></Card>;
++  if (!invoice) return (
++    <Card>
++      <CardHeader><CardTitle className="flex items-center gap-2"><FileText className="h-5 w-5 text-primary" />Invoice & Payments</CardTitle></CardHeader>
++      <CardContent className="space-y-3">
++        <p className="text-sm text-muted-foreground">Create an invoice using the won estimate linked to this job.</p>
++        <Button onClick={() => createInvoice.mutate(jobId, { onSuccess: () => { refresh(); toast({ title: "Invoice created" }); }, onError: fail("Invoice creation failed") })} disabled={createInvoice.isPending}><Plus className="mr-2 h-4 w-4" />{createInvoice.isPending ? "Creating..." : "Create Invoice"}</Button>
++      </CardContent>
++    </Card>
++  );
++
++  return (
++    <Card>
++      <CardHeader className="flex flex-row items-start justify-between gap-3">
++        <div><CardTitle className="flex items-center gap-2"><Banknote className="h-5 w-5 text-primary" />{invoice.invoiceNumber}</CardTitle><p className="mt-1 text-sm text-muted-foreground">{invoice.title}</p></div>
++        <Badge className="capitalize" variant={invoice.status === "paid" ? "default" : invoice.status === "void" ? "destructive" : "secondary"}>{invoice.status}</Badge>
++      </CardHeader>
++      <CardContent className="space-y-5">
++        <div className="grid grid-cols-3 gap-3">
++          <div className="rounded-xl bg-muted/40 p-3"><p className="text-xs text-muted-foreground">Invoice</p><p className="mt-1 font-bold">{money.format(invoice.total)}</p></div>
++          <div className="rounded-xl bg-muted/40 p-3"><p className="text-xs text-muted-foreground">Paid</p><p className="mt-1 font-bold text-emerald-400">{money.format(invoice.amountPaid)}</p></div>
++          <div className="rounded-xl bg-muted/40 p-3"><p className="text-xs text-muted-foreground">Balance</p><p className="mt-1 font-bold">{money.format(invoice.balanceDue)}</p></div>
++        </div>
++        <div className="flex flex-wrap gap-2">
++          <PaymentDialog invoice={invoice} />
++          {invoice.status === "draft" && <Button variant="outline" onClick={() => markSent.mutate(invoice.id, { onSuccess: () => { refresh(); toast({ title: "Invoice marked sent" }); }, onError: fail("Update failed") })}><Send className="mr-2 h-4 w-4" />Mark Sent</Button>}
++          {invoice.status !== "void" && invoice.status !== "paid" && <Button variant="ghost" className="text-destructive" onClick={() => { if (!window.confirm(`Void ${invoice.invoiceNumber}?`)) return; voidInvoice.mutate(invoice.id, { onSuccess: () => { refresh(); toast({ title: "Invoice voided" }); }, onError: fail("Unable to void invoice") }); }}>Void</Button>}
++        </div>
++        {invoice.status === "paid" && <p className="flex items-center gap-2 rounded-lg border border-emerald-500/30 bg-emerald-500/10 p-3 text-sm text-emerald-300"><CheckCircle2 className="h-4 w-4" />Paid in full</p>}
++        <div className="space-y-2">
++          <h3 className="text-sm font-semibold">Payment History</h3>
++          {invoice.transactions.map((transaction) => <div key={transaction.id} className="flex items-center justify-between gap-3 rounded-lg border p-3"><div><p className="text-sm font-medium">{money.format(transaction.amount)} · <span className="capitalize">{transaction.paymentMethod}</span></p><p className="text-xs text-muted-foreground">{transaction.paymentDate}{transaction.reference ? ` · ${transaction.reference}` : ""}</p></div><Button size="icon" variant="ghost" className="text-destructive" disabled={deletePayment.isPending} onClick={() => { if (!window.confirm(`Remove this ${money.format(transaction.amount)} payment?`)) return; deletePayment.mutate(transaction.id, { onSuccess: () => { refresh(); toast({ title: "Payment removed" }); }, onError: fail("Unable to remove payment") }); }}><Trash2 className="h-4 w-4" /></Button></div>)}
++          {!invoice.transactions.length && <p className="rounded-lg border border-dashed p-4 text-center text-sm text-muted-foreground">No payments recorded.</p>}
++        </div>
++      </CardContent>
++    </Card>
++  );
++}
+diff --git a/artifacts/righttemp-os/src/features/dashboard/dashboard.repository.ts b/artifacts/righttemp-os/src/features/dashboard/dashboard.repository.ts
+index fc60f8d..4534815 100644
+--- a/artifacts/righttemp-os/src/features/dashboard/dashboard.repository.ts
++++ b/artifacts/righttemp-os/src/features/dashboard/dashboard.repository.ts
+@@ -19,7 +19,10 @@ export async function getDashboardStats(): Promise<DashboardStats> {
+   const startOfTomorrow = new Date(startOfToday);
+   startOfTomorrow.setDate(startOfTomorrow.getDate() + 1);
+ 
+-  const [leadStatusesResult, recentLeadsResult, customersResult, jobsResult, estimatesResult, costsResult] =
++  const startOfMonth = new Date(startOfToday.getFullYear(), startOfToday.getMonth(), 1);
++  const monthDate = `${startOfMonth.getFullYear()}-${String(startOfMonth.getMonth() + 1).padStart(2, "0")}-01`;
++
++  const [leadStatusesResult, recentLeadsResult, customersResult, jobsResult, estimatesResult, costsResult, collectedResult] =
+     await Promise.all([
+       supabase
+         .from("leads")
+@@ -48,6 +51,11 @@ export async function getDashboardStats(): Promise<DashboardStats> {
+         .from("job_costs")
+         .select("job_id, total_cost")
+         .eq("organization_id", organizationId),
++      supabase
++        .from("payment_transactions")
++        .select("amount")
++        .eq("organization_id", organizationId)
++        .gte("payment_date", monthDate),
+     ]);
+ 
+   const firstError = [
+@@ -57,6 +65,7 @@ export async function getDashboardStats(): Promise<DashboardStats> {
+     jobsResult.error,
+     estimatesResult.error,
+     costsResult.error,
++    collectedResult.error,
+   ].find(Boolean);
+ 
+   if (firstError) {
+@@ -77,7 +86,6 @@ export async function getDashboardStats(): Promise<DashboardStats> {
+   const jobs = jobsResult.data ?? [];
+   const todayStartMs = startOfToday.getTime();
+   const tomorrowStartMs = startOfTomorrow.getTime();
+-  const startOfMonth = new Date(startOfToday.getFullYear(), startOfToday.getMonth(), 1);
+   const completedThisMonth = new Set(
+     jobs
+       .filter((row) => row.status === "completed" && row.completed_at && new Date(row.completed_at) >= startOfMonth)
+@@ -94,6 +102,10 @@ export async function getDashboardStats(): Promise<DashboardStats> {
+     .reduce((sum, row) => sum + Number(row.total_cost), 0);
+   const monthlyCost = monthlyPoCost + monthlyManualCost;
+   const monthlyProfit = monthlyRevenue - monthlyCost;
++  const monthlyCollected = (collectedResult.data ?? []).reduce(
++    (sum, row) => sum + Number(row.amount),
++    0,
++  );
+ 
+   return {
+     totalLeads: leadStatusesResult.data?.length ?? 0,
+@@ -106,6 +118,7 @@ export async function getDashboardStats(): Promise<DashboardStats> {
+       return scheduledTime >= todayStartMs && scheduledTime < tomorrowStartMs;
+     }).length,
+     monthlyRevenue,
++    monthlyCollected,
+     monthlyCost,
+     monthlyProfit,
+     monthlyMarginPercent:
+diff --git a/artifacts/righttemp-os/src/features/dashboard/dashboard.types.ts b/artifacts/righttemp-os/src/features/dashboard/dashboard.types.ts
+index 43345a5..ba669a7 100644
+--- a/artifacts/righttemp-os/src/features/dashboard/dashboard.types.ts
++++ b/artifacts/righttemp-os/src/features/dashboard/dashboard.types.ts
+@@ -13,6 +13,7 @@ export interface DashboardStats {
+   scheduledJobs: number;
+   jobsToday: number;
+   monthlyRevenue: number;
++  monthlyCollected: number;
+   monthlyCost: number;
+   monthlyProfit: number;
+   monthlyMarginPercent: number | null;
+diff --git a/artifacts/righttemp-os/src/features/invoices/invoices.hooks.ts b/artifacts/righttemp-os/src/features/invoices/invoices.hooks.ts
+new file mode 100644
+index 0000000..dd00a7a
+--- /dev/null
++++ b/artifacts/righttemp-os/src/features/invoices/invoices.hooks.ts
+@@ -0,0 +1,16 @@
++import { useMutation, useQuery } from "@tanstack/react-query";
++import { createInvoiceFromJob, deletePaymentTransaction, getJobInvoice, markInvoiceSent, recordPayment, voidInvoice } from "./invoices.repository";
++import type { JobInvoice, PaymentInput } from "./invoices.types";
++
++export const invoiceQueryKeys = {
++  job: (jobId: string) => ["invoice", "job", jobId] as const,
++};
++
++export function useJobInvoice(jobId: string) {
++  return useQuery({ queryKey: invoiceQueryKeys.job(jobId), queryFn: () => getJobInvoice(jobId), enabled: !!jobId });
++}
++export function useCreateInvoice() { return useMutation({ mutationFn: (jobId: string) => createInvoiceFromJob(jobId) }); }
++export function useMarkInvoiceSent() { return useMutation({ mutationFn: (id: string) => markInvoiceSent(id) }); }
++export function useVoidInvoice() { return useMutation({ mutationFn: (id: string) => voidInvoice(id) }); }
++export function useRecordPayment() { return useMutation({ mutationFn: ({ invoice, input }: { invoice: JobInvoice; input: PaymentInput }) => recordPayment(invoice, input) }); }
++export function useDeletePaymentTransaction() { return useMutation({ mutationFn: (id: string) => deletePaymentTransaction(id) }); }
+diff --git a/artifacts/righttemp-os/src/features/invoices/invoices.repository.ts b/artifacts/righttemp-os/src/features/invoices/invoices.repository.ts
+new file mode 100644
+index 0000000..91204da
+--- /dev/null
++++ b/artifacts/righttemp-os/src/features/invoices/invoices.repository.ts
+@@ -0,0 +1,130 @@
++import { getCurrentOrganizationId } from "@/lib/get-current-organization-id";
++import { supabase } from "@/lib/supabase";
++import type { JobInvoice, PaymentInput, PaymentMethod, PaymentTransaction } from "./invoices.types";
++
++function mapTransaction(row: any): PaymentTransaction {
++  return {
++    id: row.id,
++    amount: Number(row.amount),
++    paymentMethod: row.payment_method as PaymentMethod,
++    paymentDate: row.payment_date,
++    reference: row.reference,
++    notes: row.notes,
++    createdAt: row.created_at,
++  };
++}
++
++export async function getJobInvoice(jobId: string): Promise<JobInvoice | null> {
++  const organizationId = await getCurrentOrganizationId();
++  const { data: invoice, error } = await supabase
++    .from("payments")
++    .select("id, job_id, customer_id, estimate_id, receipt_number, line_items, total, amount_paid, status, sent_at, paid_at, notes, created_at")
++    .eq("organization_id", organizationId)
++    .eq("job_id", jobId)
++    .order("created_at", { ascending: false })
++    .limit(1)
++    .maybeSingle();
++  if (error) throw new Error(`Unable to load invoice: ${error.message}`);
++  if (!invoice) return null;
++
++  const { data: transactions, error: transactionError } = await supabase
++    .from("payment_transactions")
++    .select("id, amount, payment_method, payment_date, reference, notes, created_at")
++    .eq("organization_id", organizationId)
++    .eq("invoice_id", invoice.id)
++    .order("payment_date", { ascending: false })
++    .order("created_at", { ascending: false });
++  if (transactionError) throw new Error(`Unable to load payment history: ${transactionError.message}`);
++
++  const lineItems = Array.isArray(invoice.line_items) ? invoice.line_items : [];
++  const firstDescription = lineItems[0] && typeof lineItems[0] === "object" && "description" in lineItems[0]
++    ? String(lineItems[0].description)
++    : "Job invoice";
++  const total = Number(invoice.total);
++  const amountPaid = Number(invoice.amount_paid);
++  return {
++    id: invoice.id,
++    jobId: invoice.job_id,
++    customerId: invoice.customer_id,
++    estimateId: invoice.estimate_id,
++    invoiceNumber: invoice.receipt_number ?? "Invoice",
++    title: firstDescription,
++    total,
++    amountPaid,
++    balanceDue: Math.max(total - amountPaid, 0),
++    status: invoice.status,
++    sentAt: invoice.sent_at,
++    paidAt: invoice.paid_at,
++    notes: invoice.notes,
++    transactions: (transactions ?? []).map(mapTransaction),
++  };
++}
++
++export async function createInvoiceFromJob(jobId: string): Promise<void> {
++  const organizationId = await getCurrentOrganizationId();
++  const [{ data: job, error: jobError }, { data: estimate, error: estimateError }, { data: existing, error: existingError }] = await Promise.all([
++    supabase.from("jobs").select("customer_id, title, po_number").eq("organization_id", organizationId).eq("id", jobId).single(),
++    supabase.from("estimates").select("id, line_items, subtotal, tax_rate, tax_amount, total, notes, updated_at").eq("organization_id", organizationId).eq("job_id", jobId).in("status", ["won", "approved"]).order("updated_at", { ascending: false }).limit(1).maybeSingle(),
++    supabase.from("payments").select("id").eq("organization_id", organizationId).eq("job_id", jobId).neq("status", "void").limit(1),
++  ]);
++  if (jobError) throw new Error(`Unable to load job: ${jobError.message}`);
++  if (estimateError) throw new Error(`Unable to load won estimate: ${estimateError.message}`);
++  if (existingError) throw new Error(`Unable to check invoices: ${existingError.message}`);
++  if (existing?.length) throw new Error("This job already has an active invoice.");
++  if (!estimate) throw new Error("Mark an estimate Won before creating the invoice.");
++
++  const { error } = await supabase.from("payments").insert({
++    organization_id: organizationId,
++    job_id: jobId,
++    customer_id: job.customer_id,
++    estimate_id: estimate.id,
++    line_items: estimate.line_items,
++    subtotal: estimate.subtotal,
++    tax_rate: estimate.tax_rate,
++    tax_amount: estimate.tax_amount,
++    total: estimate.total,
++    status: "draft",
++    notes: [job.po_number ? `Job PO: ${job.po_number}` : "", estimate.notes ?? ""].filter(Boolean).join("\n"),
++  });
++  if (error) throw new Error(`Unable to create invoice: ${error.message}`);
++}
++
++export async function markInvoiceSent(invoiceId: string): Promise<void> {
++  const organizationId = await getCurrentOrganizationId();
++  const { error } = await supabase.from("payments").update({ status: "sent", sent_at: new Date().toISOString() }).eq("organization_id", organizationId).eq("id", invoiceId).eq("status", "draft");
++  if (error) throw new Error(`Unable to mark invoice sent: ${error.message}`);
++}
++
++export async function voidInvoice(invoiceId: string): Promise<void> {
++  const organizationId = await getCurrentOrganizationId();
++  const { data: transactions, error: transactionError } = await supabase.from("payment_transactions").select("id").eq("organization_id", organizationId).eq("invoice_id", invoiceId).limit(1);
++  if (transactionError) throw new Error(`Unable to verify payments: ${transactionError.message}`);
++  if (transactions?.length) throw new Error("An invoice with payments cannot be voided until those payments are removed.");
++  const { error } = await supabase.from("payments").update({ status: "void" }).eq("organization_id", organizationId).eq("id", invoiceId);
++  if (error) throw new Error(`Unable to void invoice: ${error.message}`);
++}
++
++export async function recordPayment(invoice: JobInvoice, input: PaymentInput): Promise<void> {
++  const organizationId = await getCurrentOrganizationId();
++  const { data: authData } = await supabase.auth.getUser();
++  if (!authData.user) throw new Error("You must be signed in to record a payment.");
++  const { error } = await supabase.from("payment_transactions").insert({
++    organization_id: organizationId,
++    invoice_id: invoice.id,
++    job_id: invoice.jobId,
++    amount: input.amount,
++    payment_method: input.paymentMethod,
++    payment_date: input.paymentDate,
++    reference: input.reference || null,
++    notes: input.notes || null,
++    created_by: authData.user.id,
++  });
++  if (error) throw new Error(`Unable to record payment: ${error.message}`);
++}
++
++export async function deletePaymentTransaction(id: string): Promise<void> {
++  const organizationId = await getCurrentOrganizationId();
++  const { data, error } = await supabase.from("payment_transactions").delete().eq("organization_id", organizationId).eq("id", id).select("id");
++  if (error) throw new Error(`Unable to remove payment: ${error.message}`);
++  if (!data?.length) throw new Error("Only an organization admin can remove payments.");
++}
+diff --git a/artifacts/righttemp-os/src/features/invoices/invoices.types.ts b/artifacts/righttemp-os/src/features/invoices/invoices.types.ts
+new file mode 100644
+index 0000000..ad7a58b
+--- /dev/null
++++ b/artifacts/righttemp-os/src/features/invoices/invoices.types.ts
+@@ -0,0 +1,37 @@
++export type InvoiceStatus = "draft" | "sent" | "partial" | "paid" | "void";
++export type PaymentMethod = "cash" | "check" | "card" | "ach" | "financing" | "other";
++
++export interface PaymentTransaction {
++  id: string;
++  amount: number;
++  paymentMethod: PaymentMethod;
++  paymentDate: string;
++  reference: string | null;
++  notes: string | null;
++  createdAt: string;
++}
++
++export interface JobInvoice {
++  id: string;
++  jobId: string;
++  customerId: string;
++  estimateId: string | null;
++  invoiceNumber: string;
++  title: string;
++  total: number;
++  amountPaid: number;
++  balanceDue: number;
++  status: InvoiceStatus;
++  sentAt: string | null;
++  paidAt: string | null;
++  notes: string | null;
++  transactions: PaymentTransaction[];
++}
++
++export interface PaymentInput {
++  amount: number;
++  paymentMethod: PaymentMethod;
++  paymentDate: string;
++  reference?: string;
++  notes?: string;
++}
+diff --git a/artifacts/righttemp-os/src/pages/dashboard.tsx b/artifacts/righttemp-os/src/pages/dashboard.tsx
+index 3af2d11..24e2403 100644
+--- a/artifacts/righttemp-os/src/pages/dashboard.tsx
++++ b/artifacts/righttemp-os/src/pages/dashboard.tsx
+@@ -396,8 +396,8 @@ export default function DashboardPage() {
+             <div className="flex items-start justify-between">
+               <div>
+                 <p className="text-sm text-muted-foreground">Monthly Revenue</p>
+-                <p className={`text-2xl font-bold mt-2 ${stats.monthlyProfit >= 0 ? "text-emerald-400" : "text-red-400"}`}>
+-                  {money.format(stats.monthlyProfit)}
++                <p className="text-2xl font-bold mt-2 text-emerald-400">
++                  {money.format(stats.monthlyCollected)}
+                 </p>
+               </div>
+ 
+@@ -407,7 +407,7 @@ export default function DashboardPage() {
+             </div>
+ 
+             <p className="text-xs text-muted-foreground mt-4">
+-              Connect estimates and invoices
++              Payments collected this month
+             </p>
+           </CardContent>
+         </Card>
+@@ -417,7 +417,9 @@ export default function DashboardPage() {
+             <div className="flex items-start justify-between">
+               <div>
+                 <p className="text-sm text-muted-foreground">Monthly Profit</p>
+-                <p className="text-2xl font-bold mt-2">$—</p>
++                <p className={`text-2xl font-bold mt-2 ${stats.monthlyProfit >= 0 ? "text-emerald-400" : "text-red-400"}`}>
++                  {money.format(stats.monthlyProfit)}
++                </p>
+               </div>
+ 
+               <div className="rounded-xl bg-red-500/10 p-2.5">
+diff --git a/artifacts/righttemp-os/src/pages/job-detail.tsx b/artifacts/righttemp-os/src/pages/job-detail.tsx
+index 42902c8..2e9a3af 100644
+--- a/artifacts/righttemp-os/src/pages/job-detail.tsx
++++ b/artifacts/righttemp-os/src/pages/job-detail.tsx
+@@ -6,6 +6,7 @@ import { useJob } from "@/features/jobs/jobs.hooks";
+ import { JobWalkthroughCard } from "@/components/job-walkthrough-card";
+ import { EditJobDialog } from "@/components/edit-job-dialog";
+ import { JobProfitabilityCard } from "@/components/job-profitability-card";
++import { JobInvoiceCard } from "@/components/job-invoice-card";
+ 
+ const dateFormatter = new Intl.DateTimeFormat(undefined, {
+   dateStyle: "full",
+@@ -98,6 +99,7 @@ export default function JobDetailPage() {
+       )}
+ 
+       <JobWalkthroughCard jobId={job.id} />
++      <JobInvoiceCard jobId={job.id} />
+       <JobProfitabilityCard jobId={job.id} />
+     </div>
+   );
+diff --git a/supabase/migrations/20260802212000_add_invoice_payment_transactions.sql b/supabase/migrations/20260802212000_add_invoice_payment_transactions.sql
+new file mode 100644
+index 0000000..1c1bb7f
+--- /dev/null
++++ b/supabase/migrations/20260802212000_add_invoice_payment_transactions.sql
+@@ -0,0 +1,162 @@
++-- Invoice numbering and auditable payment history.
++
++CREATE SEQUENCE IF NOT EXISTS public.invoice_number_seq START 1;
++
++CREATE OR REPLACE FUNCTION public.assign_invoice_number()
++RETURNS trigger
++LANGUAGE plpgsql
++SET search_path = ''
++AS $$
++BEGIN
++  IF NEW.receipt_number IS NULL OR btrim(NEW.receipt_number) = '' THEN
++    NEW.receipt_number := 'INV-' || lpad(nextval('public.invoice_number_seq')::text, 6, '0');
++  END IF;
++  RETURN NEW;
++END;
++$$;
++
++DROP TRIGGER IF EXISTS trg_payments_assign_invoice_number ON public.payments;
++CREATE TRIGGER trg_payments_assign_invoice_number
++  BEFORE INSERT ON public.payments
++  FOR EACH ROW EXECUTE FUNCTION public.assign_invoice_number();
++
++CREATE TABLE IF NOT EXISTS public.payment_transactions (
++  id               uuid PRIMARY KEY DEFAULT gen_random_uuid(),
++  organization_id  uuid NOT NULL REFERENCES public.organizations(id) ON DELETE CASCADE,
++  invoice_id       uuid NOT NULL REFERENCES public.payments(id) ON DELETE CASCADE,
++  job_id           uuid NOT NULL REFERENCES public.jobs(id) ON DELETE RESTRICT,
++  amount           numeric(12,2) NOT NULL CHECK (amount > 0),
++  payment_method   text NOT NULL CHECK (payment_method IN ('cash', 'check', 'card', 'ach', 'financing', 'other')),
++  payment_date     date NOT NULL DEFAULT current_date,
++  reference        text,
++  notes            text,
++  created_by       uuid REFERENCES auth.users(id) ON DELETE SET NULL,
++  created_at       timestamptz NOT NULL DEFAULT now()
++);
++
++CREATE INDEX IF NOT EXISTS idx_payment_transactions_org_id
++  ON public.payment_transactions(organization_id);
++CREATE INDEX IF NOT EXISTS idx_payment_transactions_invoice_id
++  ON public.payment_transactions(invoice_id);
++CREATE INDEX IF NOT EXISTS idx_payment_transactions_job_id
++  ON public.payment_transactions(job_id);
++CREATE INDEX IF NOT EXISTS idx_payment_transactions_date
++  ON public.payment_transactions(payment_date);
++CREATE INDEX IF NOT EXISTS idx_payment_transactions_created_by
++  ON public.payment_transactions(created_by);
++
++ALTER TABLE public.payment_transactions ENABLE ROW LEVEL SECURITY;
++
++CREATE POLICY "Org members can select payment transactions"
++  ON public.payment_transactions FOR SELECT TO authenticated
++  USING (private.is_org_member(organization_id));
++
++CREATE POLICY "Org members can insert payment transactions"
++  ON public.payment_transactions FOR INSERT TO authenticated
++  WITH CHECK (private.is_org_member(organization_id));
++
++CREATE POLICY "Org admins can delete payment transactions"
++  ON public.payment_transactions FOR DELETE TO authenticated
++  USING (private.is_org_role(organization_id, 'admin'));
++
++GRANT SELECT, INSERT, DELETE ON public.payment_transactions TO authenticated;
++
++CREATE OR REPLACE FUNCTION public.validate_payment_transaction()
++RETURNS trigger
++LANGUAGE plpgsql
++SET search_path = ''
++AS $$
++DECLARE
++  invoice_total numeric(12,2);
++  paid_total numeric(12,2);
++  invoice_status text;
++  invoice_org uuid;
++  invoice_job uuid;
++BEGIN
++  SELECT total, status, organization_id, job_id
++    INTO invoice_total, invoice_status, invoice_org, invoice_job
++    FROM public.payments
++   WHERE id = NEW.invoice_id;
++
++  IF invoice_total IS NULL THEN
++    RAISE EXCEPTION 'Invoice not found';
++  END IF;
++  IF invoice_status = 'void' THEN
++    RAISE EXCEPTION 'Cannot record payment on a void invoice';
++  END IF;
++  IF invoice_org <> NEW.organization_id OR invoice_job <> NEW.job_id THEN
++    RAISE EXCEPTION 'Payment does not match invoice organization and job';
++  END IF;
++
++  SELECT COALESCE(sum(amount), 0)
++    INTO paid_total
++    FROM public.payment_transactions
++   WHERE invoice_id = NEW.invoice_id;
++
++  IF paid_total + NEW.amount > invoice_total THEN
++    RAISE EXCEPTION 'Payment exceeds remaining invoice balance';
++  END IF;
++  RETURN NEW;
++END;
++$$;
++
++DROP TRIGGER IF EXISTS trg_payment_transactions_validate ON public.payment_transactions;
++CREATE TRIGGER trg_payment_transactions_validate
++  BEFORE INSERT ON public.payment_transactions
++  FOR EACH ROW EXECUTE FUNCTION public.validate_payment_transaction();
++
++CREATE OR REPLACE FUNCTION public.sync_invoice_payment_totals()
++RETURNS trigger
++LANGUAGE plpgsql
++SET search_path = ''
++AS $$
++DECLARE
++  target_invoice_id uuid := COALESCE(NEW.invoice_id, OLD.invoice_id);
++  paid_total numeric(12,2);
++  invoice_total numeric(12,2);
++  invoice_sent_at timestamptz;
++  latest_method text;
++  latest_date date;
++BEGIN
++  SELECT COALESCE(sum(amount), 0)
++    INTO paid_total
++    FROM public.payment_transactions
++   WHERE invoice_id = target_invoice_id;
++
++  SELECT total, sent_at
++    INTO invoice_total, invoice_sent_at
++    FROM public.payments
++   WHERE id = target_invoice_id;
++
++  SELECT payment_method, payment_date
++    INTO latest_method, latest_date
++    FROM public.payment_transactions
++   WHERE invoice_id = target_invoice_id
++   ORDER BY payment_date DESC, created_at DESC
++   LIMIT 1;
++
++  UPDATE public.payments
++     SET amount_paid = paid_total,
++         payment_method = latest_method,
++         payment_date = latest_date,
++         status = CASE
++           WHEN status = 'void' THEN 'void'
++           WHEN invoice_total > 0 AND paid_total >= invoice_total THEN 'paid'
++           WHEN paid_total > 0 THEN 'partial'
++           WHEN invoice_sent_at IS NOT NULL THEN 'sent'
++           ELSE 'draft'
++         END,
++         paid_at = CASE
++           WHEN invoice_total > 0 AND paid_total >= invoice_total THEN now()
++           ELSE NULL
++         END
++   WHERE id = target_invoice_id;
++
++  RETURN COALESCE(NEW, OLD);
++END;
++$$;
++
++DROP TRIGGER IF EXISTS trg_payment_transactions_sync_invoice ON public.payment_transactions;
++CREATE TRIGGER trg_payment_transactions_sync_invoice
++  AFTER INSERT OR DELETE ON public.payment_transactions
++  FOR EACH ROW EXECUTE FUNCTION public.sync_invoice_payment_totals();
+-- 
+2.51.1
+

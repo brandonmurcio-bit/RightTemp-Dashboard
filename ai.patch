@@ -1,0 +1,599 @@
+From 747eb6473d34bada826b8c30303e7aad8ed21d94 Mon Sep 17 00:00:00 2001
+From: OpenAI Codex <codex@openai.com>
+Date: Sun, 16 Aug 2026 19:08:17 +0000
+Subject: [PATCH] feat: add RightTemp ChatGPT connector
+
+---
+ artifacts/api-server/.env.example           |   6 +
+ artifacts/api-server/RIGHTTEMP_ASSISTANT.md |  18 ++
+ artifacts/api-server/package.json           |   5 +-
+ artifacts/api-server/src/app.ts             |   5 +
+ artifacts/api-server/src/lib/righttemp.ts   |  34 ++++
+ artifacts/api-server/src/mcp.ts             | 180 ++++++++++++++++++++
+ pnpm-lock.yaml                              | 116 +++++++++++++
+ 7 files changed, 363 insertions(+), 1 deletion(-)
+ create mode 100644 artifacts/api-server/.env.example
+ create mode 100644 artifacts/api-server/RIGHTTEMP_ASSISTANT.md
+ create mode 100644 artifacts/api-server/src/lib/righttemp.ts
+ create mode 100644 artifacts/api-server/src/mcp.ts
+
+diff --git a/artifacts/api-server/.env.example b/artifacts/api-server/.env.example
+new file mode 100644
+index 0000000..79eaf80
+--- /dev/null
++++ b/artifacts/api-server/.env.example
+@@ -0,0 +1,6 @@
++PORT=3000
++DATABASE_URL=postgres://user:password@host:5432/database
++SUPABASE_URL=https://YOUR_PROJECT.supabase.co
++SUPABASE_SERVICE_ROLE_KEY=server-only-service-role-key
++RIGHTTEMP_ORGANIZATION_ID=your-organization-uuid
++RIGHTTEMP_MCP_TOKEN=long-random-private-token
+diff --git a/artifacts/api-server/RIGHTTEMP_ASSISTANT.md b/artifacts/api-server/RIGHTTEMP_ASSISTANT.md
+new file mode 100644
+index 0000000..53fc220
+--- /dev/null
++++ b/artifacts/api-server/RIGHTTEMP_ASSISTANT.md
+@@ -0,0 +1,18 @@
++# RightTemp ChatGPT connector
++
++This is a private, tool-only MCP connector at `POST /mcp`. It lets ChatGPT search RightTemp, read today's schedule, create leads, update lead workflow, create draft estimates, and schedule follow-ups or sales appointments.
++
++All writes use a two-step flow. A call with `confirmed: false` returns a preview. The tool only writes when ChatGPT calls it again with `confirmed: true` after the user explicitly confirms.
++
++## Server secrets
++
++Copy `.env.example` into your host's secret manager. Never put the service-role key or MCP token in frontend code or Git.
++
++## Local check
++
++```sh
++pnpm --filter @workspace/api-server typecheck
++pnpm --filter @workspace/api-server build
++```
++
++Deploy the existing API server over HTTPS, then add `https://YOUR_HOST/mcp` in ChatGPT Developer Mode. Configure the connector to send `Authorization: Bearer YOUR_RIGHTTEMP_MCP_TOKEN`. The initial version is private and intended only for the RightTemp owner.
+diff --git a/artifacts/api-server/package.json b/artifacts/api-server/package.json
+index 6916f27..7cc4c8d 100644
+--- a/artifacts/api-server/package.json
++++ b/artifacts/api-server/package.json
+@@ -10,6 +10,8 @@
+     "typecheck": "tsc -p tsconfig.json --noEmit"
+   },
+   "dependencies": {
++    "@modelcontextprotocol/sdk": "^1.30.0",
++    "@supabase/supabase-js": "^2.110.8",
+     "@workspace/api-zod": "workspace:*",
+     "@workspace/db": "workspace:*",
+     "cookie-parser": "^1.4.7",
+@@ -17,7 +19,8 @@
+     "drizzle-orm": "catalog:",
+     "express": "^5.2.1",
+     "pino": "^9.14.0",
+-    "pino-http": "^10.5.0"
++    "pino-http": "^10.5.0",
++    "zod": "catalog:"
+   },
+   "devDependencies": {
+     "@types/cookie-parser": "^1.4.10",
+diff --git a/artifacts/api-server/src/app.ts b/artifacts/api-server/src/app.ts
+index f32f71e..c975e06 100644
+--- a/artifacts/api-server/src/app.ts
++++ b/artifacts/api-server/src/app.ts
+@@ -3,6 +3,7 @@ import cors from "cors";
+ import pinoHttp from "pino-http";
+ import router from "./routes";
+ import { logger } from "./lib/logger";
++import { handleMcp } from "./mcp";
+ 
+ const app: Express = express();
+ 
+@@ -29,6 +30,10 @@ app.use(cors());
+ app.use(express.json());
+ app.use(express.urlencoded({ extended: true }));
+ 
++app.post("/mcp", (req, res, next) => {
++  void handleMcp(req, res).catch(next);
++});
++
+ app.use("/api", router);
+ 
+ export default app;
+diff --git a/artifacts/api-server/src/lib/righttemp.ts b/artifacts/api-server/src/lib/righttemp.ts
+new file mode 100644
+index 0000000..810591a
+--- /dev/null
++++ b/artifacts/api-server/src/lib/righttemp.ts
+@@ -0,0 +1,34 @@
++import { createClient } from "@supabase/supabase-js";
++
++function required(name: string): string {
++  const value = process.env[name];
++  if (!value) throw new Error(`${name} is required`);
++  return value;
++}
++
++export const organizationId = () => required("RIGHTTEMP_ORGANIZATION_ID");
++
++export function rightTempDb() {
++  return createClient(required("SUPABASE_URL"), required("SUPABASE_SERVICE_ROLE_KEY"), {
++    auth: { persistSession: false, autoRefreshToken: false },
++  });
++}
++
++export function normalizePhone(value: string): string {
++  return value.replace(/\D/g, "");
++}
++
++export function jsonResult(value: unknown) {
++  return {
++    content: [{ type: "text" as const, text: JSON.stringify(value, null, 2) }],
++    structuredContent: value as Record<string, unknown>,
++  };
++}
++
++export function confirmationRequired(action: string, preview: Record<string, unknown>) {
++  return jsonResult({
++    status: "confirmation_required",
++    message: `Show this preview and ask the user to confirm before ${action}.`,
++    preview,
++  });
++}
+diff --git a/artifacts/api-server/src/mcp.ts b/artifacts/api-server/src/mcp.ts
+new file mode 100644
+index 0000000..5a28963
+--- /dev/null
++++ b/artifacts/api-server/src/mcp.ts
+@@ -0,0 +1,180 @@
++import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
++import { StreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/streamableHttp.js";
++import type { Request, Response } from "express";
++import { z } from "zod";
++import { confirmationRequired, jsonResult, normalizePhone, organizationId, rightTempDb } from "./lib/righttemp";
++
++const leadFields = "id, customer_id, name, email, phone, status, source, service_type, notes, follow_up_date, follow_up_time, estimate_price, equipment, scope_of_work, contacted_notes, qualified_notes, created_at";
++
++function server() {
++  const mcp = new McpServer({ name: "RightTemp OS", version: "1.0.0" });
++
++  mcp.registerTool("search", {
++    title: "Search RightTemp",
++    description: "Search RightTemp leads and customers by name, phone, or email. Use before creating a lead to detect duplicates.",
++    inputSchema: { query: z.string().min(1) },
++    annotations: { readOnlyHint: true, destructiveHint: false, openWorldHint: false },
++  }, async ({ query }) => {
++    const db = rightTempDb();
++    const org = organizationId();
++    const term = query.trim().replace(/[,%()]/g, " ");
++    const phone = normalizePhone(query);
++    const filter = `name.ilike.%${term}%,email.ilike.%${term}%,phone.ilike.%${phone || term}%`;
++    const [leads, customers] = await Promise.all([
++      db.from("leads").select(leadFields).eq("organization_id", org).or(filter).limit(10),
++      db.from("customers").select("id, name, email, phone, address, city, state, zip, status, notes, created_at").eq("organization_id", org).or(filter).limit(10),
++    ]);
++    if (leads.error) throw leads.error;
++    if (customers.error) throw customers.error;
++    return jsonResult({ results: [
++      ...(leads.data ?? []).map((item) => ({ id: `lead:${item.id}`, type: "lead", title: item.name, text: `${item.phone ?? ""} · ${item.status}`, data: item })),
++      ...(customers.data ?? []).map((item) => ({ id: `customer:${item.id}`, type: "customer", title: item.name, text: `${item.phone ?? ""} · ${item.status}`, data: item })),
++    ] });
++  });
++
++  mcp.registerTool("fetch", {
++    title: "Fetch RightTemp record",
++    description: "Fetch one RightTemp lead or customer using an ID returned by search.",
++    inputSchema: { id: z.string().regex(/^(lead|customer):[0-9a-f-]+$/i) },
++    annotations: { readOnlyHint: true, destructiveHint: false, openWorldHint: false },
++  }, async ({ id }) => {
++    const [type, recordId] = id.split(":") as ["lead" | "customer", string];
++    const query = type === "lead"
++      ? rightTempDb().from("leads").select(leadFields)
++      : rightTempDb().from("customers").select("id, name, email, phone, address, city, state, zip, status, service_type, notes, created_at");
++    const { data, error } = await query.eq("organization_id", organizationId()).eq("id", recordId).single();
++    if (error) throw error;
++    return jsonResult({ id, type, title: data.name, data });
++  });
++
++  mcp.registerTool("create_lead", {
++    title: "Create lead",
++    description: "Create an in-person, phone, referral, website, or other lead. Always call with confirmed=false first; only use true after the user explicitly confirms the preview. Duplicate phone numbers are never inserted.",
++    inputSchema: {
++      name: z.string().min(1), phone: z.string().min(7), email: z.string().email().optional(),
++      source: z.enum(["referral", "website", "google", "yelp", "phone", "social", "other"]).default("other"),
++      service_type: z.string().optional(), notes: z.string().optional(), confirmed: z.boolean().default(false),
++    },
++    annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: false },
++  }, async (input) => {
++    const db = rightTempDb();
++    const org = organizationId();
++    const digits = normalizePhone(input.phone);
++    const { data: candidates, error: findError } = await db.from("leads").select(leadFields).eq("organization_id", org).limit(100);
++    if (findError) throw findError;
++    const duplicate = (candidates ?? []).find((lead) => normalizePhone(lead.phone ?? "") === digits);
++    if (duplicate) return jsonResult({ status: "duplicate", message: "A lead with this phone number already exists. No new lead was created.", lead: duplicate });
++    const preview = { name: input.name, phone: input.phone, email: input.email ?? null, source: input.source, service_type: input.service_type ?? null, notes: input.notes ?? null, status: "new" };
++    if (!input.confirmed) return confirmationRequired("creating this lead", preview);
++    const { data, error } = await db.from("leads").insert({ organization_id: org, ...preview }).select(leadFields).single();
++    if (error) throw error;
++    return jsonResult({ status: "created", lead: data });
++  });
++
++  mcp.registerTool("today_schedule", {
++    title: "Read today's schedule",
++    description: "Read today's sales calls, in-home estimates, lead follow-ups, and scheduled jobs in chronological order.",
++    inputSchema: { date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).describe("Local date in YYYY-MM-DD") },
++    annotations: { readOnlyHint: true, destructiveHint: false, openWorldHint: false },
++  }, async ({ date }) => {
++    const db = rightTempDb(); const org = organizationId();
++    const start = `${date}T00:00:00`; const end = `${date}T23:59:59.999`;
++    const [appointments, followUps, jobs] = await Promise.all([
++      db.from("sales_appointments").select("id, lead_id, appointment_type, status, starts_at, ends_at, address, notes, leads(name, phone)").eq("organization_id", org).gte("starts_at", start).lte("starts_at", end).order("starts_at"),
++      db.from("leads").select("id, name, phone, status, follow_up_date, follow_up_time, notes").eq("organization_id", org).eq("follow_up_date", date).order("follow_up_time"),
++      db.from("jobs").select("id, title, status, scheduled_start, scheduled_end, customers(name, phone)").eq("organization_id", org).gte("scheduled_start", start).lte("scheduled_start", end).order("scheduled_start"),
++    ]);
++    for (const result of [appointments, followUps, jobs]) if (result.error) throw result.error;
++    const items = [
++      ...(appointments.data ?? []).map((x) => ({ kind: "sales_appointment", time: x.starts_at, ...x })),
++      ...(followUps.data ?? []).map((x) => ({ kind: "follow_up", time: `${x.follow_up_date}T${x.follow_up_time || "09:00"}`, ...x })),
++      ...(jobs.data ?? []).map((x) => ({ kind: "job", time: x.scheduled_start, ...x })),
++    ].sort((a, b) => String(a.time).localeCompare(String(b.time)));
++    return jsonResult({ date, items });
++  });
++
++  mcp.registerTool("update_lead", {
++    title: "Update lead workflow",
++    description: "Add notes or change a lead's pipeline stage. Always call with confirmed=false first and only use true after explicit user confirmation.",
++    inputSchema: {
++      lead_id: z.string().uuid(), status: z.enum(["new", "contacted", "qualified", "proposal", "won", "lost"]).optional(),
++      notes_to_append: z.string().optional(), contacted_notes: z.string().optional(), qualified_notes: z.string().optional(), confirmed: z.boolean().default(false),
++    },
++    annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: false },
++  }, async (input) => {
++    const db = rightTempDb(); const org = organizationId();
++    const { data: current, error: readError } = await db.from("leads").select(leadFields).eq("organization_id", org).eq("id", input.lead_id).single();
++    if (readError) throw readError;
++    const changes = { ...(input.status ? { status: input.status } : {}), ...(input.contacted_notes ? { contacted_notes: input.contacted_notes } : {}), ...(input.qualified_notes ? { qualified_notes: input.qualified_notes } : {}), ...(input.notes_to_append ? { notes: [current.notes, input.notes_to_append].filter(Boolean).join("\n\n") } : {}) };
++    if (!input.confirmed) return confirmationRequired("updating this lead", { lead: current.name, changes });
++    const { data, error } = await db.from("leads").update(changes).eq("organization_id", org).eq("id", input.lead_id).select(leadFields).single();
++    if (error) throw error;
++    return jsonResult({ status: "updated", lead: data });
++  });
++
++  mcp.registerTool("create_draft_estimate", {
++    title: "Create draft estimate",
++    description: "Create a draft estimate for a lead or customer. Never sends it. Always preview with confirmed=false and require explicit confirmation before true.",
++    inputSchema: {
++      lead_id: z.string().uuid().optional(), customer_id: z.string().uuid().optional(), title: z.string().min(1),
++      line_items: z.array(z.object({ description: z.string().min(1), quantity: z.number().positive(), unit_price: z.number().nonnegative() })).min(1),
++      tax_rate: z.number().min(0).max(1).default(0), valid_until: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional(), notes: z.string().optional(), confirmed: z.boolean().default(false),
++    },
++    annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: false },
++  }, async (input) => {
++    if (!input.lead_id && !input.customer_id) throw new Error("lead_id or customer_id is required");
++    const lineItems = input.line_items.map((x) => ({ ...x, total: x.quantity * x.unit_price }));
++    const subtotal = lineItems.reduce((sum, x) => sum + x.total, 0); const taxAmount = subtotal * input.tax_rate;
++    const preview = { lead_id: input.lead_id ?? null, customer_id: input.customer_id ?? null, title: input.title, line_items: lineItems, subtotal, tax_rate: input.tax_rate, tax_amount: taxAmount, total: subtotal + taxAmount, valid_until: input.valid_until ?? null, notes: input.notes ?? null, status: "draft" };
++    if (!input.confirmed) return confirmationRequired("creating this draft estimate", preview);
++    const { data, error } = await rightTempDb().from("estimates").insert({ organization_id: organizationId(), ...preview }).select("id, estimate_number, title, subtotal, tax_amount, total, status, lead_id, customer_id, created_at").single();
++    if (error) throw error;
++    return jsonResult({ status: "created", estimate: data });
++  });
++
++  mcp.registerTool("schedule_sales_action", {
++    title: "Schedule follow-up or appointment",
++    description: "Schedule a lead follow-up, phone call, or in-home estimate. Always preview with confirmed=false and require explicit confirmation before true.",
++    inputSchema: {
++      lead_id: z.string().uuid(), kind: z.enum(["follow_up", "phone_call", "in_home_estimate"]), starts_at: z.string().datetime({ offset: true }),
++      ends_at: z.string().datetime({ offset: true }).optional(), address: z.string().optional(), notes: z.string().optional(), confirmed: z.boolean().default(false),
++    },
++    annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: false },
++  }, async (input) => {
++    const preview = { lead_id: input.lead_id, kind: input.kind, starts_at: input.starts_at, ends_at: input.ends_at ?? null, address: input.address ?? null, notes: input.notes ?? null };
++    if (!input.confirmed) return confirmationRequired("scheduling this action", preview);
++    const db = rightTempDb(); const org = organizationId();
++    if (input.kind === "follow_up") {
++      const when = new Date(input.starts_at);
++      const date = input.starts_at.slice(0, 10); const time = input.starts_at.slice(11, 16);
++      if (Number.isNaN(when.getTime())) throw new Error("Invalid follow-up time");
++      const { data, error } = await db.from("leads").update({ follow_up_date: date, follow_up_time: time, ...(input.notes ? { notes: input.notes } : {}) }).eq("organization_id", org).eq("id", input.lead_id).select("id, name, follow_up_date, follow_up_time").single();
++      if (error) throw error;
++      return jsonResult({ status: "scheduled", follow_up: data });
++    }
++    if (!input.ends_at) throw new Error("ends_at is required for appointments");
++    const { data, error } = await db.from("sales_appointments").insert({ organization_id: org, lead_id: input.lead_id, appointment_type: input.kind, starts_at: input.starts_at, ends_at: input.ends_at, address: input.address ?? null, notes: input.notes ?? null }).select("id, lead_id, appointment_type, status, starts_at, ends_at, address, notes").single();
++    if (error) throw error;
++    return jsonResult({ status: "scheduled", appointment: data });
++  });
++
++  return mcp;
++}
++
++function authorized(req: Request): boolean {
++  const token = process.env["RIGHTTEMP_MCP_TOKEN"];
++  const supplied = req.headers.authorization?.replace(/^Bearer\s+/i, "");
++  return Boolean(token && supplied && token.length === supplied.length && token === supplied);
++}
++
++export async function handleMcp(req: Request, res: Response): Promise<void> {
++  if (!authorized(req)) {
++    res.status(401).json({ error: "Unauthorized" });
++    return;
++  }
++  const mcp = server();
++  const transport = new StreamableHTTPServerTransport({ sessionIdGenerator: undefined });
++  res.on("close", () => { void transport.close(); void mcp.close(); });
++  await mcp.connect(transport);
++  await transport.handleRequest(req, res, req.body);
++}
+diff --git a/pnpm-lock.yaml b/pnpm-lock.yaml
+index 90a3bee..bf0b787 100644
+--- a/pnpm-lock.yaml
++++ b/pnpm-lock.yaml
+@@ -170,6 +170,12 @@ importers:
+ 
+   artifacts/api-server:
+     dependencies:
++      '@modelcontextprotocol/sdk':
++        specifier: ^1.30.0
++        version: 1.30.0(zod@3.25.76)
++      '@supabase/supabase-js':
++        specifier: ^2.110.8
++        version: 2.110.8
+       '@workspace/api-zod':
+         specifier: workspace:*
+         version: link:../../lib/api-zod
+@@ -194,6 +200,9 @@ importers:
+       pino-http:
+         specifier: ^10.5.0
+         version: 10.5.0
++      zod:
++        specifier: 'catalog:'
++        version: 3.25.76
+     devDependencies:
+       '@types/cookie-parser':
+         specifier: ^1.4.10
+@@ -1213,6 +1222,12 @@ packages:
+   '@gerrit0/mini-shiki@3.23.0':
+     resolution: {integrity: sha512-bEMORlG0cqdjVyCEuU0cDQbORWX+kYCeo0kV1lbxF5bt4r7SID2l9bqsxJEM0zndaxpOUT7riCyIVEuqq/Ynxg==}
+ 
++  '@hono/node-server@2.1.1':
++    resolution: {integrity: sha512-ELuehkj5VCBdgEw9zs+ivkKwyzzUCSQuE96YmiPvn1ECBoZCczbFXJLeEGMTYjphP6gydh4pHMqEYPVMYUVgQg==}
++    engines: {node: '>=20'}
++    peerDependencies:
++      hono: ^4
++
+   '@hookform/resolvers@3.10.0':
+     resolution: {integrity: sha512-79Dv+3mDF7i+2ajj7SkypSKHhl1cbln1OGavqrsF7p6mbUv11xpqpacPsGDCTRvCSjEEIez2ef1NveSVL3b0Ag==}
+     peerDependencies:
+@@ -1241,6 +1256,16 @@ packages:
+   '@jridgewell/trace-mapping@0.3.31':
+     resolution: {integrity: sha512-zzNR+SdQSDJzc8joaeP8QQoCQr8NuYx2dIIytl1QeBEZHJ9uW6hebsrYgbz8hJwUQao3TWCMtmfV8Nu1twOLAw==}
+ 
++  '@modelcontextprotocol/sdk@1.30.0':
++    resolution: {integrity: sha512-xKd8OIzlqNzcqcNumGAa6g+PW2kjD5vrpcKOnfldAUPP3j7lnqMPwlTXQm8gF+UwH72z0lqaRbjr9hqGz0eITA==}
++    engines: {node: '>=18'}
++    peerDependencies:
++      '@cfworker/json-schema': ^4.1.1
++      zod: ^3.25 || ^4.0
++    peerDependenciesMeta:
++      '@cfworker/json-schema':
++        optional: true
++
+   '@nodelib/fs.scandir@2.1.5':
+     resolution: {integrity: sha512-vq24Bq3ym5HEQm2NKCr3yXDwjc7vTsEThRDnkp2DK9p1uqLR+DHurm/NOTo0KG7HYHU7eppKZj3MyqYuMBf62g==}
+     engines: {node: '>= 8'}
+@@ -2761,10 +2786,24 @@ packages:
+   eventemitter3@4.0.7:
+     resolution: {integrity: sha512-8guHBZCwKnFhYdHr2ysuRWErTwhoN2X8XELRlrRwpmfeY2jjuUN4taQMsULKUVo1K4DvZl+0pgfyoysHxvmvEw==}
+ 
++  eventsource-parser@3.1.1:
++    resolution: {integrity: sha512-EKN1vKAMcZ8MlYMpaNuxN6R9yakzH6uajHcHVTqWJzvu5pWw9DyhbP35HH8MVBQ+dZjAfDxk+A8NiR9KWaXiyQ==}
++    engines: {node: '>=18.0.0'}
++
++  eventsource@3.0.7:
++    resolution: {integrity: sha512-CRT1WTyuQoD771GW56XEZFQ/ZoSfWid1alKGDYMmkt2yl8UXrVR4pspqWNEcqKvVIzg6PAltWjxcSSPrboA4iA==}
++    engines: {node: '>=18.0.0'}
++
+   execa@9.6.1:
+     resolution: {integrity: sha512-9Be3ZoN4LmYR90tUoVu2te2BsbzHfhJyfEiAVfz7N5/zv+jduIfLrV2xdQXOHbaD6KgpGdO9PRPM1Y4Q9QkPkA==}
+     engines: {node: ^18.19.0 || >=20.5.0}
+ 
++  express-rate-limit@8.6.2:
++    resolution: {integrity: sha512-YH4ru+eOJxQABscKFfRCy9R7x9QFGdezclVMwwgFFndzS2Xnm0uo6B0ABZsLhcpeptGv2qvuJVWlQr9gQZoC3A==}
++    engines: {node: '>= 16'}
++    peerDependencies:
++      express: '>= 4.11'
++
+   express@5.2.1:
+     resolution: {integrity: sha512-hIS4idWWai69NezIdRt2xFVofaF4j+6INOpJlVOLDO8zXGpUVEVzIYk12UUi2JzjEzWL3IOAxcTubgz9Po0yXw==}
+     engines: {node: '>= 18'}
+@@ -2961,6 +3000,10 @@ packages:
+   help-me@5.0.0:
+     resolution: {integrity: sha512-7xgomUX6ADmcYzFik0HzAxh/73YlKR9bmFzf51CZwR+b6YtzU2m0u49hQCqV6SvlqIqsaxovfwdvbnsw3b/zpg==}
+ 
++  hono@4.13.2:
++    resolution: {integrity: sha512-JydRilDRkYBQMt9qR9U92mXxmbGqsqSn/IKOrh4e7/gEbn+0zSr8igTu0obwJoNGN4sez28DIql7FBHWydoJpA==}
++    engines: {node: '>=16.9.0'}
++
+   http-errors@2.0.1:
+     resolution: {integrity: sha512-4FbRdAX+bSdmo4AUFuS0WNiPz8NgFt+r8ThgNWmlrjQjt1Q7ZR9+zTlce2859x4KSXrwIsaeTqDoKQmtP8pLmQ==}
+     engines: {node: '>= 0.8'}
+@@ -2997,6 +3040,10 @@ packages:
+     resolution: {integrity: sha512-5Hh7Y1wQbvY5ooGgPbDaL5iYLAPzMTUrjMulskHLH6wnv/A+1q5rgEaiuqEjB+oxGXIVZs1FF+R/KPN3ZSQYYg==}
+     engines: {node: '>=12'}
+ 
++  ip-address@10.5.0:
++    resolution: {integrity: sha512-R5SnVLJmgYYvf2F2ZgwSBnelz5G4q5AxIC277GDfUaNbrZKNANcBC7RHqYYePlszf4kBolVkJauG0ZjHHFh55g==}
++    engines: {node: '>= 12'}
++
+   ipaddr.js@1.9.1:
+     resolution: {integrity: sha512-0KI/607xoxSToH7GjN1FfSbLoU0+btTicjsQSWQlh/hZykN8KpmMf7uYwPW3R+akZ6R/w18ZlXSHBYXiYUPO3g==}
+     engines: {node: '>= 0.10'}
+@@ -3154,6 +3201,9 @@ packages:
+     resolution: {integrity: sha512-AC/7JofJvZGrrneWNaEnJeOLUx+JlGt7tNa0wZiRPT4MY1wmfKjt2+6O2p2uz2+skll8OZZmJMNqeke7kKbNgQ==}
+     hasBin: true
+ 
++  jose@6.2.9:
++    resolution: {integrity: sha512-XrchZOFZUl/T3vTwRe8XK+cJrGtMF4th1ARnDfwbBXFKThGhlsxEE4Zu03AD/bjJSt/9jT/mxrOCkJWOg77aPA==}
++
+   joycon@3.1.1:
+     resolution: {integrity: sha512-34wB/Y7MW7bzjKRjUKTa46I2Z7eV62Rkhva+KkopW7Qvv/OSWBqvkSY7vusOPrNuZcUG3tApvdVgNB8POj3SPw==}
+     engines: {node: '>=10'}
+@@ -3173,6 +3223,9 @@ packages:
+   json-schema-traverse@1.0.0:
+     resolution: {integrity: sha512-NM8/P9n3XjXhIZn1lLhkFaACTOURQXjWhV4BA/RnOv8xvgqtqpAX9IO4mRQxSx1Rlo4tqzeqb0sOlruaOy3dug==}
+ 
++  json-schema-typed@8.0.2:
++    resolution: {integrity: sha512-fQhoXdcvc3V28x7C7BMs4P5+kNlgUURe2jmUT1T//oBRMDrqy1QPelJimwZGo7Hg9VPV3EQV5Bnq4hbFy2vetA==}
++
+   json5@2.2.3:
+     resolution: {integrity: sha512-XmOWe7eyHYH14cLdVPoyg+GOH3rYX++KpzrylJwSW98t3Nk+U8XOl8FWKOgwtzdb8lXGf6zYwDUzeHMWfxasyg==}
+     engines: {node: '>=6'}
+@@ -3473,6 +3526,10 @@ packages:
+     resolution: {integrity: sha512-8OEwKp5juEvb/MjpIc4hjqfgCNysrS94RIOMXYvpYCdm/jglrKEiAYmiumbmGhCvs+IcInsphYDFwqrjr7398w==}
+     hasBin: true
+ 
++  pkce-challenge@5.0.1:
++    resolution: {integrity: sha512-wQ0b/W4Fr01qtpHlqSqspcj3EhBvimsdh0KlHhH8HRZnMsEa0ea2fTULOXOS9ccQr3om+GcGRk4e+isrZWV8qQ==}
++    engines: {node: '>=16.20.0'}
++
+   possible-typed-array-names@1.1.0:
+     resolution: {integrity: sha512-/+5VFTchJDoVj3bhoqi6UeymcD00DAwb1nJwamzPvHEszJ4FpF6SNNbUbOS8yI56qHzdV8eK0qEfOSiodkTdxg==}
+     engines: {node: '>= 0.4'}
+@@ -4233,6 +4290,11 @@ packages:
+     resolution: {integrity: sha512-CzhO+pFNo8ajLM2d2IW/R93ipy99LWjtwblvC1RsoSUMZgyLbYFr221TnSNT7GjGdYui6P459mw9JH/g/zW2ug==}
+     engines: {node: '>=18'}
+ 
++  zod-to-json-schema@3.25.2:
++    resolution: {integrity: sha512-O/PgfnpT1xKSDeQYSCfRI5Gy3hPf91mKVDuYLUHZJMiDFptvP41MSnWofm8dnCm0256ZNfZIM7DSzuSMAFnjHA==}
++    peerDependencies:
++      zod: ^3.25.28 || ^4
++
+   zod@3.25.76:
+     resolution: {integrity: sha512-gzUt/qt81nXsFGKIFcC3YnfEAx5NkunCfnDlvuBSSFS02bcXu4Lmea0AFIUwbLWxWPx3d9p8S5QoaujKcNQxcQ==}
+ 
+@@ -4953,6 +5015,10 @@ snapshots:
+       '@shikijs/types': 3.23.0
+       '@shikijs/vscode-textmate': 10.0.2
+ 
++  '@hono/node-server@2.1.1(hono@4.13.2)':
++    dependencies:
++      hono: 4.13.2
++
+   '@hookform/resolvers@3.10.0(react-hook-form@7.82.0(react@19.1.0))':
+     dependencies:
+       react-hook-form: 7.82.0(react@19.1.0)
+@@ -4983,6 +5049,28 @@ snapshots:
+       '@jridgewell/resolve-uri': 3.1.2
+       '@jridgewell/sourcemap-codec': 1.5.5
+ 
++  '@modelcontextprotocol/sdk@1.30.0(zod@3.25.76)':
++    dependencies:
++      '@hono/node-server': 2.1.1(hono@4.13.2)
++      ajv: 8.20.0
++      ajv-formats: 3.0.1
++      content-type: 1.0.5
++      cors: 2.8.6
++      cross-spawn: 7.0.6
++      eventsource: 3.0.7
++      eventsource-parser: 3.1.1
++      express: 5.2.1
++      express-rate-limit: 8.6.2(express@5.2.1)
++      hono: 4.13.2
++      jose: 6.2.9
++      json-schema-typed: 8.0.2
++      pkce-challenge: 5.0.1
++      raw-body: 3.0.2
++      zod: 3.25.76
++      zod-to-json-schema: 3.25.2(zod@3.25.76)
++    transitivePeerDependencies:
++      - supports-color
++
+   '@nodelib/fs.scandir@2.1.5':
+     dependencies:
+       '@nodelib/fs.stat': 2.0.5
+@@ -6596,6 +6684,12 @@ snapshots:
+ 
+   eventemitter3@4.0.7: {}
+ 
++  eventsource-parser@3.1.1: {}
++
++  eventsource@3.0.7:
++    dependencies:
++      eventsource-parser: 3.1.1
++
+   execa@9.6.1:
+     dependencies:
+       '@sindresorhus/merge-streams': 4.0.0
+@@ -6611,6 +6705,14 @@ snapshots:
+       strip-final-newline: 4.0.0
+       yoctocolors: 2.1.2
+ 
++  express-rate-limit@8.6.2(express@5.2.1):
++    dependencies:
++      debug: 4.4.3
++      express: 5.2.1
++      ip-address: 10.5.0
++    transitivePeerDependencies:
++      - supports-color
++
+   express@5.2.1:
+     dependencies:
+       accepts: 2.0.0
+@@ -6841,6 +6943,8 @@ snapshots:
+ 
+   help-me@5.0.0: {}
+ 
++  hono@4.13.2: {}
++
+   http-errors@2.0.1:
+     dependencies:
+       depd: 2.0.0
+@@ -6874,6 +6978,8 @@ snapshots:
+ 
+   internmap@2.0.3: {}
+ 
++  ip-address@10.5.0: {}
++
+   ipaddr.js@1.9.1: {}
+ 
+   is-array-buffer@3.0.5:
+@@ -7020,6 +7126,8 @@ snapshots:
+ 
+   jiti@2.7.0: {}
+ 
++  jose@6.2.9: {}
++
+   joycon@3.1.1: {}
+ 
+   js-tokens@4.0.0: {}
+@@ -7032,6 +7140,8 @@ snapshots:
+ 
+   json-schema-traverse@1.0.0: {}
+ 
++  json-schema-typed@8.0.2: {}
++
+   json5@2.2.3: {}
+ 
+   jsonfile@6.2.1:
+@@ -7344,6 +7454,8 @@ snapshots:
+       sonic-boom: 4.2.1
+       thread-stream: 3.1.0
+ 
++  pkce-challenge@5.0.1: {}
++
+   possible-typed-array-names@1.1.0: {}
+ 
+   postcss-selector-parser@6.0.10:
+@@ -8206,4 +8318,8 @@ snapshots:
+ 
+   yoctocolors@2.1.2: {}
+ 
++  zod-to-json-schema@3.25.2(zod@3.25.76):
++    dependencies:
++      zod: 3.25.76
++
+   zod@3.25.76: {}
+-- 
+2.51.1
+

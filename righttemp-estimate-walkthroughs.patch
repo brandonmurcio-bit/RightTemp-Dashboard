@@ -1,0 +1,531 @@
+From 3d9df47ef389fb5639ef2652620b372432acde63 Mon Sep 17 00:00:00 2001
+From: Codex <noreply@openai.com>
+Date: Sun, 2 Aug 2026 20:28:37 +0000
+Subject: [PATCH] feat: carry estimate walkthroughs into jobs
+
+---
+ .../estimate-walkthrough-photos.tsx           | 100 ++++++++++++++++++
+ .../src/components/job-walkthrough-card.tsx   |  63 +++++++++++
+ .../estimate-walkthrough.hooks.ts             |  40 +++++++
+ .../estimate-walkthrough.repository.ts        |  90 ++++++++++++++++
+ .../estimate-walkthrough.types.ts             |  24 +++++
+ .../righttemp-os/src/pages/estimates.tsx      |  10 +-
+ .../righttemp-os/src/pages/job-detail.tsx     |   3 +
+ ...203000_add_estimate_walkthrough_photos.sql |  97 +++++++++++++++++
+ 8 files changed, 426 insertions(+), 1 deletion(-)
+ create mode 100644 artifacts/righttemp-os/src/components/estimate-walkthrough-photos.tsx
+ create mode 100644 artifacts/righttemp-os/src/components/job-walkthrough-card.tsx
+ create mode 100644 artifacts/righttemp-os/src/features/estimate-walkthrough/estimate-walkthrough.hooks.ts
+ create mode 100644 artifacts/righttemp-os/src/features/estimate-walkthrough/estimate-walkthrough.repository.ts
+ create mode 100644 artifacts/righttemp-os/src/features/estimate-walkthrough/estimate-walkthrough.types.ts
+ create mode 100644 supabase/migrations/20260802203000_add_estimate_walkthrough_photos.sql
+
+diff --git a/artifacts/righttemp-os/src/components/estimate-walkthrough-photos.tsx b/artifacts/righttemp-os/src/components/estimate-walkthrough-photos.tsx
+new file mode 100644
+index 0000000..65055fc
+--- /dev/null
++++ b/artifacts/righttemp-os/src/components/estimate-walkthrough-photos.tsx
+@@ -0,0 +1,100 @@
++import { useRef } from "react";
++import { useQueryClient } from "@tanstack/react-query";
++import { Camera, ExternalLink, Images, Trash2, Upload } from "lucide-react";
++import { Button } from "@/components/ui/button";
++import {
++  useDeleteWalkthroughPhoto,
++  useUploadWalkthroughPhoto,
++  useWalkthroughPhotos,
++  walkthroughQueryKeys,
++} from "@/features/estimate-walkthrough/estimate-walkthrough.hooks";
++import { openWalkthroughPhoto } from "@/features/estimate-walkthrough/estimate-walkthrough.repository";
++import { useToast } from "@/hooks/use-toast";
++
++export function EstimateWalkthroughPhotos({ estimateId }: { estimateId: string }) {
++  const uploadInput = useRef<HTMLInputElement>(null);
++  const cameraInput = useRef<HTMLInputElement>(null);
++  const queryClient = useQueryClient();
++  const { toast } = useToast();
++  const { data: photos, isLoading } = useWalkthroughPhotos(estimateId);
++  const uploadPhoto = useUploadWalkthroughPhoto();
++  const deletePhoto = useDeleteWalkthroughPhoto();
++
++  const upload = (file?: File) => {
++    if (!file) return;
++    uploadPhoto.mutate(
++      { estimateId, file },
++      {
++        onSuccess: () => {
++          queryClient.invalidateQueries({ queryKey: walkthroughQueryKeys.photos(estimateId) });
++          toast({ title: "Walkthrough photo saved", description: "It will follow this estimate into the job." });
++        },
++        onError: (error) =>
++          toast({ title: "Photo upload failed", description: error.message, variant: "destructive" }),
++      },
++    );
++  };
++
++  const open = async (storagePath: string) => {
++    try {
++      window.open(await openWalkthroughPhoto(storagePath), "_blank", "noopener,noreferrer");
++    } catch (error) {
++      toast({
++        title: "Unable to open photo",
++        description: error instanceof Error ? error.message : "Photo could not be opened.",
++        variant: "destructive",
++      });
++    }
++  };
++
++  return (
++    <div className="space-y-3 border-t pt-4">
++      <div className="flex flex-wrap items-center justify-between gap-2">
++        <p className="flex items-center gap-2 text-sm font-semibold">
++          <Images className="h-4 w-4 text-primary" /> Walkthrough Photos
++          {!isLoading && <span className="text-xs font-normal text-muted-foreground">({photos?.length ?? 0})</span>}
++        </p>
++        <div className="flex gap-2">
++          <input ref={uploadInput} type="file" className="hidden" accept="image/*,application/pdf" onChange={(event) => upload(event.target.files?.[0])} />
++          <input ref={cameraInput} type="file" className="hidden" accept="image/*" capture="environment" onChange={(event) => upload(event.target.files?.[0])} />
++          <Button type="button" size="sm" variant="outline" disabled={uploadPhoto.isPending} onClick={() => uploadInput.current?.click()}>
++            <Upload className="mr-2 h-4 w-4" /> Upload
++          </Button>
++          <Button type="button" size="sm" variant="outline" disabled={uploadPhoto.isPending} onClick={() => cameraInput.current?.click()}>
++            <Camera className="mr-2 h-4 w-4" /> Camera
++          </Button>
++        </div>
++      </div>
++      {uploadPhoto.isPending && <p className="text-xs text-muted-foreground">Uploading photo...</p>}
++      <div className="space-y-2">
++        {(photos ?? []).map((photo) => (
++          <div key={photo.id} className="flex items-center justify-between gap-3 rounded-md border p-2">
++            <div className="min-w-0">
++              <p className="truncate text-xs font-medium">{photo.fileName}</p>
++              <p className="text-[11px] text-muted-foreground">{new Date(photo.createdAt).toLocaleDateString()}</p>
++            </div>
++            <div className="flex">
++              <Button type="button" size="icon" variant="ghost" onClick={() => open(photo.storagePath)}><ExternalLink className="h-4 w-4" /></Button>
++              <Button
++                type="button"
++                size="icon"
++                variant="ghost"
++                className="text-destructive"
++                disabled={deletePhoto.isPending}
++                onClick={() => {
++                  if (!window.confirm(`Delete ${photo.fileName}?`)) return;
++                  deletePhoto.mutate(photo, {
++                    onSuccess: () => queryClient.invalidateQueries({ queryKey: walkthroughQueryKeys.photos(estimateId) }),
++                    onError: (error) => toast({ title: "Delete failed", description: error.message, variant: "destructive" }),
++                  });
++                }}
++              >
++                <Trash2 className="h-4 w-4" />
++              </Button>
++            </div>
++          </div>
++        ))}
++      </div>
++    </div>
++  );
++}
+diff --git a/artifacts/righttemp-os/src/components/job-walkthrough-card.tsx b/artifacts/righttemp-os/src/components/job-walkthrough-card.tsx
+new file mode 100644
+index 0000000..060e178
+--- /dev/null
++++ b/artifacts/righttemp-os/src/components/job-walkthrough-card.tsx
+@@ -0,0 +1,63 @@
++import { ExternalLink, Images } from "lucide-react";
++import { Button } from "@/components/ui/button";
++import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
++import { useJobWalkthrough } from "@/features/estimate-walkthrough/estimate-walkthrough.hooks";
++import { openWalkthroughPhoto } from "@/features/estimate-walkthrough/estimate-walkthrough.repository";
++import { useToast } from "@/hooks/use-toast";
++
++export function JobWalkthroughCard({ jobId }: { jobId: string }) {
++  const { data: walkthrough, isLoading } = useJobWalkthrough(jobId);
++  const { toast } = useToast();
++
++  if (isLoading) {
++    return <Card><CardContent className="py-8 text-sm text-muted-foreground">Loading estimate walkthrough...</CardContent></Card>;
++  }
++  if (!walkthrough) return null;
++
++  const open = async (storagePath: string) => {
++    try {
++      window.open(await openWalkthroughPhoto(storagePath), "_blank", "noopener,noreferrer");
++    } catch (error) {
++      toast({
++        title: "Unable to open photo",
++        description: error instanceof Error ? error.message : "Photo could not be opened.",
++        variant: "destructive",
++      });
++    }
++  };
++
++  return (
++    <Card>
++      <CardHeader>
++        <CardTitle className="flex items-center gap-2">
++          <Images className="h-5 w-5 text-primary" /> Estimate Walkthrough
++        </CardTitle>
++        <p className="text-sm text-muted-foreground">{walkthrough.title}</p>
++      </CardHeader>
++      <CardContent className="space-y-4">
++        {walkthrough.notes && (
++          <div>
++            <p className="mb-1 text-xs font-semibold uppercase tracking-wide text-muted-foreground">Walkthrough Notes</p>
++            <p className="whitespace-pre-wrap text-sm">{walkthrough.notes}</p>
++          </div>
++        )}
++        <div className="grid gap-2 sm:grid-cols-2">
++          {walkthrough.photos.map((photo) => (
++            <button
++              key={photo.id}
++              type="button"
++              onClick={() => open(photo.storagePath)}
++              className="flex items-center justify-between gap-3 rounded-lg border p-3 text-left hover:bg-muted/50"
++            >
++              <span className="min-w-0 truncate text-sm">{photo.fileName}</span>
++              <ExternalLink className="h-4 w-4 shrink-0 text-primary" />
++            </button>
++          ))}
++        </div>
++        {!walkthrough.notes && walkthrough.photos.length === 0 && (
++          <p className="text-sm text-muted-foreground">No walkthrough notes or photos were added.</p>
++        )}
++      </CardContent>
++    </Card>
++  );
++}
+diff --git a/artifacts/righttemp-os/src/features/estimate-walkthrough/estimate-walkthrough.hooks.ts b/artifacts/righttemp-os/src/features/estimate-walkthrough/estimate-walkthrough.hooks.ts
+new file mode 100644
+index 0000000..22e03d6
+--- /dev/null
++++ b/artifacts/righttemp-os/src/features/estimate-walkthrough/estimate-walkthrough.hooks.ts
+@@ -0,0 +1,40 @@
++import { useMutation, useQuery } from "@tanstack/react-query";
++import {
++  deleteWalkthroughPhoto,
++  getJobWalkthrough,
++  getWalkthroughPhotos,
++  uploadWalkthroughPhoto,
++} from "./estimate-walkthrough.repository";
++import type { WalkthroughPhoto } from "./estimate-walkthrough.types";
++
++export const walkthroughQueryKeys = {
++  photos: (estimateId: string) => ["estimate-walkthrough", estimateId] as const,
++  job: (jobId: string) => ["job-walkthrough", jobId] as const,
++};
++
++export function useWalkthroughPhotos(estimateId: string) {
++  return useQuery({
++    queryKey: walkthroughQueryKeys.photos(estimateId),
++    queryFn: () => getWalkthroughPhotos(estimateId),
++    enabled: !!estimateId,
++  });
++}
++
++export function useUploadWalkthroughPhoto() {
++  return useMutation({
++    mutationFn: ({ estimateId, file }: { estimateId: string; file: File }) =>
++      uploadWalkthroughPhoto(estimateId, file),
++  });
++}
++
++export function useDeleteWalkthroughPhoto() {
++  return useMutation({ mutationFn: (photo: WalkthroughPhoto) => deleteWalkthroughPhoto(photo) });
++}
++
++export function useJobWalkthrough(jobId: string) {
++  return useQuery({
++    queryKey: walkthroughQueryKeys.job(jobId),
++    queryFn: () => getJobWalkthrough(jobId),
++    enabled: !!jobId,
++  });
++}
+diff --git a/artifacts/righttemp-os/src/features/estimate-walkthrough/estimate-walkthrough.repository.ts b/artifacts/righttemp-os/src/features/estimate-walkthrough/estimate-walkthrough.repository.ts
+new file mode 100644
+index 0000000..483711f
+--- /dev/null
++++ b/artifacts/righttemp-os/src/features/estimate-walkthrough/estimate-walkthrough.repository.ts
+@@ -0,0 +1,90 @@
++import { getCurrentOrganizationId } from "@/lib/get-current-organization-id";
++import { supabase } from "@/lib/supabase";
++import type { JobWalkthrough, WalkthroughPhoto, WalkthroughPhotoRow } from "./estimate-walkthrough.types";
++
++const bucket = "estimate-walkthroughs";
++
++function mapPhoto(row: WalkthroughPhotoRow): WalkthroughPhoto {
++  return {
++    id: row.id,
++    estimateId: row.estimate_id,
++    fileName: row.file_name,
++    storagePath: row.storage_path,
++    caption: row.caption,
++    createdAt: row.created_at,
++  };
++}
++
++export async function getWalkthroughPhotos(estimateId: string): Promise<WalkthroughPhoto[]> {
++  const organizationId = await getCurrentOrganizationId();
++  const { data, error } = await supabase
++    .from("estimate_walkthrough_photos")
++    .select("id, estimate_id, file_name, storage_path, caption, created_at")
++    .eq("organization_id", organizationId)
++    .eq("estimate_id", estimateId)
++    .order("created_at", { ascending: false });
++  if (error) throw new Error(`Unable to load walkthrough photos: ${error.message}`);
++  return ((data ?? []) as WalkthroughPhotoRow[]).map(mapPhoto);
++}
++
++export async function uploadWalkthroughPhoto(estimateId: string, file: File): Promise<void> {
++  const organizationId = await getCurrentOrganizationId();
++  const { data: authData } = await supabase.auth.getUser();
++  if (!authData.user) throw new Error("You must be signed in to upload walkthrough photos.");
++  const safeName = file.name.replace(/[^a-zA-Z0-9._-]/g, "-");
++  const storagePath = `${organizationId}/${estimateId}/${crypto.randomUUID()}-${safeName}`;
++  const { error: uploadError } = await supabase.storage
++    .from(bucket)
++    .upload(storagePath, file, { contentType: file.type || "image/jpeg", upsert: false });
++  if (uploadError) throw new Error(`Unable to upload walkthrough photo: ${uploadError.message}`);
++
++  const { error: metadataError } = await supabase.from("estimate_walkthrough_photos").insert({
++    organization_id: organizationId,
++    estimate_id: estimateId,
++    file_name: file.name,
++    storage_path: storagePath,
++    mime_type: file.type || null,
++    file_size: file.size,
++    uploaded_by: authData.user.id,
++  });
++  if (metadataError) {
++    await supabase.storage.from(bucket).remove([storagePath]);
++    throw new Error(`Unable to save walkthrough photo: ${metadataError.message}`);
++  }
++}
++
++export async function openWalkthroughPhoto(storagePath: string): Promise<string> {
++  const { data, error } = await supabase.storage.from(bucket).createSignedUrl(storagePath, 60);
++  if (error) throw new Error(`Unable to open walkthrough photo: ${error.message}`);
++  return data.signedUrl;
++}
++
++export async function deleteWalkthroughPhoto(photo: WalkthroughPhoto): Promise<void> {
++  const organizationId = await getCurrentOrganizationId();
++  const { error: metadataError } = await supabase
++    .from("estimate_walkthrough_photos")
++    .delete()
++    .eq("id", photo.id)
++    .eq("organization_id", organizationId);
++  if (metadataError) throw new Error(`Unable to delete walkthrough photo: ${metadataError.message}`);
++  const { error: storageError } = await supabase.storage.from(bucket).remove([photo.storagePath]);
++  if (storageError) throw new Error(`Photo record was deleted, but its file could not be removed: ${storageError.message}`);
++}
++
++export async function getJobWalkthrough(jobId: string): Promise<JobWalkthrough | null> {
++  const organizationId = await getCurrentOrganizationId();
++  const { data: estimate, error } = await supabase
++    .from("estimates")
++    .select("id, title, notes")
++    .eq("organization_id", organizationId)
++    .eq("job_id", jobId)
++    .maybeSingle();
++  if (error) throw new Error(`Unable to load job walkthrough: ${error.message}`);
++  if (!estimate) return null;
++  return {
++    estimateId: estimate.id,
++    title: estimate.title,
++    notes: estimate.notes,
++    photos: await getWalkthroughPhotos(estimate.id),
++  };
++}
+diff --git a/artifacts/righttemp-os/src/features/estimate-walkthrough/estimate-walkthrough.types.ts b/artifacts/righttemp-os/src/features/estimate-walkthrough/estimate-walkthrough.types.ts
+new file mode 100644
+index 0000000..9e720a6
+--- /dev/null
++++ b/artifacts/righttemp-os/src/features/estimate-walkthrough/estimate-walkthrough.types.ts
+@@ -0,0 +1,24 @@
++export interface WalkthroughPhoto {
++  id: string;
++  estimateId: string;
++  fileName: string;
++  storagePath: string;
++  caption: string | null;
++  createdAt: string;
++}
++
++export interface WalkthroughPhotoRow {
++  id: string;
++  estimate_id: string;
++  file_name: string;
++  storage_path: string;
++  caption: string | null;
++  created_at: string;
++}
++
++export interface JobWalkthrough {
++  estimateId: string;
++  title: string;
++  notes: string | null;
++  photos: WalkthroughPhoto[];
++}
+diff --git a/artifacts/righttemp-os/src/pages/estimates.tsx b/artifacts/righttemp-os/src/pages/estimates.tsx
+index ba25b8c..aa61c6d 100644
+--- a/artifacts/righttemp-os/src/pages/estimates.tsx
++++ b/artifacts/righttemp-os/src/pages/estimates.tsx
+@@ -20,6 +20,7 @@ import {
+ } from "@/features/estimates/estimates.hooks";
+ import type { Estimate, EstimateInput, EstimateStatus } from "@/features/estimates/estimates.types";
+ import { useToast } from "@/hooks/use-toast";
++import { EstimateWalkthroughPhotos } from "@/components/estimate-walkthrough-photos";
+ 
+ const money = new Intl.NumberFormat("en-US", { style: "currency", currency: "USD" });
+ const statusColors: Record<EstimateStatus, string> = {
+@@ -191,7 +192,7 @@ export default function EstimatesPage() {
+               </div>
+               <div className="rounded-lg border p-4 flex justify-between"><span className="text-muted-foreground">Estimate total</span><strong className="text-xl">{money.format(total)}</strong></div>
+               <div className="space-y-2"><Label>Valid until</Label><Input type="date" value={validUntil} onChange={(e) => setValidUntil(e.target.value)} /></div>
+-              <div className="space-y-2"><Label>Customer notes</Label><Textarea value={notes} onChange={(e) => setNotes(e.target.value)} placeholder="Warranty, payment schedule, exclusions..." /></div>
++              <div className="space-y-2"><Label>Walkthrough & customer notes</Label><Textarea value={notes} onChange={(e) => setNotes(e.target.value)} placeholder="Equipment condition, access, electrical, ductwork, measurements, customer requests..." /></div>
+               <Button className="w-full" onClick={submit} disabled={createEstimate.isPending || editEstimate.isPending}>{createEstimate.isPending || editEstimate.isPending ? "Saving..." : editingId ? "Save Changes" : "Save Draft Estimate"}</Button>
+             </div>
+           </DialogContent>
+@@ -217,6 +218,13 @@ export default function EstimatesPage() {
+                 <Button size="sm" variant="outline" onClick={() => beginEdit(estimate)}><Pencil className="h-4 w-4 mr-2" />Edit</Button>
+                 <Button size="sm" variant="outline" className="text-destructive" disabled={deleteEstimate.isPending} onClick={() => removeEstimate(estimate)}><Trash2 className="h-4 w-4" /></Button>
+               </div>
++              {estimate.notes && (
++                <div className="rounded-md bg-muted/40 p-3">
++                  <p className="mb-1 text-xs font-semibold">Walkthrough Notes</p>
++                  <p className="whitespace-pre-wrap text-sm text-muted-foreground">{estimate.notes}</p>
++                </div>
++              )}
++              <EstimateWalkthroughPhotos estimateId={estimate.id} />
+             </CardContent>
+           </Card>
+         ))}
+diff --git a/artifacts/righttemp-os/src/pages/job-detail.tsx b/artifacts/righttemp-os/src/pages/job-detail.tsx
+index bc01379..5227260 100644
+--- a/artifacts/righttemp-os/src/pages/job-detail.tsx
++++ b/artifacts/righttemp-os/src/pages/job-detail.tsx
+@@ -3,6 +3,7 @@ import { useLocation, useParams } from "wouter";
+ import { Button } from "@/components/ui/button";
+ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+ import { useJob } from "@/features/jobs/jobs.hooks";
++import { JobWalkthroughCard } from "@/components/job-walkthrough-card";
+ 
+ const dateFormatter = new Intl.DateTimeFormat(undefined, {
+   dateStyle: "full",
+@@ -90,6 +91,8 @@ export default function JobDetailPage() {
+           </CardContent>
+         </Card>
+       )}
++
++      <JobWalkthroughCard jobId={job.id} />
+     </div>
+   );
+ }
+diff --git a/supabase/migrations/20260802203000_add_estimate_walkthrough_photos.sql b/supabase/migrations/20260802203000_add_estimate_walkthrough_photos.sql
+new file mode 100644
+index 0000000..ad87e64
+--- /dev/null
++++ b/supabase/migrations/20260802203000_add_estimate_walkthrough_photos.sql
+@@ -0,0 +1,97 @@
++CREATE TABLE public.estimate_walkthrough_photos (
++  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
++  organization_id UUID NOT NULL REFERENCES public.organizations(id) ON DELETE CASCADE,
++  estimate_id UUID NOT NULL REFERENCES public.estimates(id) ON DELETE CASCADE,
++  file_name TEXT NOT NULL,
++  storage_path TEXT NOT NULL UNIQUE,
++  mime_type TEXT,
++  file_size BIGINT,
++  caption TEXT,
++  uploaded_by UUID REFERENCES auth.users(id) ON DELETE SET NULL,
++  created_at TIMESTAMPTZ NOT NULL DEFAULT now()
++);
++
++CREATE INDEX idx_estimate_walkthrough_photos_estimate_id
++  ON public.estimate_walkthrough_photos(estimate_id);
++CREATE INDEX idx_estimate_walkthrough_photos_org_id
++  ON public.estimate_walkthrough_photos(organization_id);
++CREATE INDEX idx_estimate_walkthrough_photos_uploaded_by
++  ON public.estimate_walkthrough_photos(uploaded_by);
++
++ALTER TABLE public.estimate_walkthrough_photos ENABLE ROW LEVEL SECURITY;
++
++CREATE POLICY "Org members can read estimate walkthrough photos"
++  ON public.estimate_walkthrough_photos FOR SELECT TO authenticated
++  USING (private.is_org_member(organization_id));
++
++CREATE POLICY "Org members can upload estimate walkthrough photos"
++  ON public.estimate_walkthrough_photos FOR INSERT TO authenticated
++  WITH CHECK (
++    private.is_org_member(organization_id)
++    AND uploaded_by = (SELECT auth.uid())
++  );
++
++CREATE POLICY "Org members can delete estimate walkthrough photos"
++  ON public.estimate_walkthrough_photos FOR DELETE TO authenticated
++  USING (private.is_org_member(organization_id));
++
++INSERT INTO storage.buckets (id, name, public, file_size_limit, allowed_mime_types)
++VALUES (
++  'estimate-walkthroughs',
++  'estimate-walkthroughs',
++  false,
++  26214400,
++  ARRAY['image/jpeg', 'image/png', 'image/webp', 'image/heic', 'image/heif', 'application/pdf']
++)
++ON CONFLICT (id) DO UPDATE SET
++  public = EXCLUDED.public,
++  file_size_limit = EXCLUDED.file_size_limit,
++  allowed_mime_types = EXCLUDED.allowed_mime_types;
++
++CREATE POLICY "Org members can read estimate walkthrough storage"
++  ON storage.objects FOR SELECT TO authenticated
++  USING (
++    bucket_id = 'estimate-walkthroughs'
++    AND private.is_org_member(public.storage_org_id(name))
++  );
++
++CREATE POLICY "Org members can upload estimate walkthrough storage"
++  ON storage.objects FOR INSERT TO authenticated
++  WITH CHECK (
++    bucket_id = 'estimate-walkthroughs'
++    AND private.is_org_member(public.storage_org_id(name))
++  );
++
++CREATE POLICY "Org members can delete estimate walkthrough storage"
++  ON storage.objects FOR DELETE TO authenticated
++  USING (
++    bucket_id = 'estimate-walkthroughs'
++    AND private.is_org_member(public.storage_org_id(name))
++  );
++
++CREATE OR REPLACE FUNCTION private.link_won_estimate_to_new_job()
++RETURNS TRIGGER
++LANGUAGE plpgsql
++SECURITY INVOKER
++SET search_path = ''
++AS $$
++BEGIN
++  UPDATE public.estimates
++  SET job_id = NEW.id
++  WHERE id = (
++    SELECT e.id
++    FROM public.estimates e
++    WHERE e.organization_id = NEW.organization_id
++      AND e.customer_id = NEW.customer_id
++      AND e.status = 'won'
++      AND e.job_id IS NULL
++    ORDER BY e.updated_at DESC, e.created_at DESC
++    LIMIT 1
++  );
++  RETURN NEW;
++END;
++$$;
++
++CREATE TRIGGER trg_jobs_link_won_estimate
++  AFTER INSERT ON public.jobs
++  FOR EACH ROW EXECUTE FUNCTION private.link_won_estimate_to_new_job();
+-- 
+2.51.1
+

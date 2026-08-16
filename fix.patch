@@ -1,0 +1,126 @@
+From 74b861cf0533f9b681d63c3117f3fb9e2ae5030a Mon Sep 17 00:00:00 2001
+From: Codex <noreply@openai.com>
+Date: Sun, 2 Aug 2026 20:46:04 +0000
+Subject: [PATCH] fix: replace crashing schedule calendar component
+
+---
+ artifacts/righttemp-os/src/pages/schedule.tsx | 84 ++++++++++++++-----
+ 1 file changed, 62 insertions(+), 22 deletions(-)
+
+diff --git a/artifacts/righttemp-os/src/pages/schedule.tsx b/artifacts/righttemp-os/src/pages/schedule.tsx
+index 3b5896a..dd5abd9 100644
+--- a/artifacts/righttemp-os/src/pages/schedule.tsx
++++ b/artifacts/righttemp-os/src/pages/schedule.tsx
+@@ -1,13 +1,24 @@
+ import { useMemo, useState } from "react";
+-import { addMonths, format, isSameDay, startOfDay } from "date-fns";
++import {
++  addMonths,
++  eachDayOfInterval,
++  endOfMonth,
++  endOfWeek,
++  format,
++  isSameDay,
++  isSameMonth,
++  startOfDay,
++  startOfMonth,
++  startOfWeek,
++} from "date-fns";
+ import { CalendarDays, ChevronLeft, ChevronRight, Clock3, Plus, UserRound } from "lucide-react";
+ import { Link } from "wouter";
+ import { Button } from "@/components/ui/button";
+-import { Calendar } from "@/components/ui/calendar";
+ import { Card, CardContent } from "@/components/ui/card";
+ import { useCustomers } from "@/features/customers/customers.hooks";
+ import { useJobs } from "@/features/jobs/jobs.hooks";
+ import type { JobStatus } from "@/features/jobs/jobs.types";
++import { cn } from "@/lib/utils";
+ 
+ const statusStyles: Record<JobStatus, string> = {
+   scheduled: "border-blue-500/30 bg-blue-500/10 text-blue-400",
+@@ -51,6 +62,14 @@ export default function SchedulePage() {
+     () => new Map((customers ?? []).map((customer) => [customer.id, customer.name])),
+     [customers],
+   );
++  const calendarDays = useMemo(
++    () =>
++      eachDayOfInterval({
++        start: startOfWeek(startOfMonth(visibleMonth)),
++        end: endOfWeek(endOfMonth(visibleMonth)),
++      }),
++    [visibleMonth],
++  );
+ 
+   const chooseToday = () => {
+     const today = startOfDay(new Date());
+@@ -87,26 +106,47 @@ export default function SchedulePage() {
+                 <ChevronRight className="h-4 w-4" />
+               </Button>
+             </div>
+-            <Calendar
+-              mode="single"
+-              month={visibleMonth}
+-              onMonthChange={setVisibleMonth}
+-              selected={selectedDate}
+-              onSelect={(date) => date && setSelectedDate(startOfDay(date))}
+-              modifiers={{ hasJobs: datesWithJobs }}
+-              modifiersClassNames={{
+-                hasJobs:
+-                  "[&>button]:font-bold [&>button]:text-primary [&>button]:after:absolute [&>button]:after:bottom-1 [&>button]:after:h-1 [&>button]:after:w-1 [&>button]:after:rounded-full [&>button]:after:bg-primary",
+-              }}
+-              className="w-full [--cell-size:2.7rem] sm:[--cell-size:3rem]"
+-              classNames={{
+-                root: "w-full",
+-                month: "w-full",
+-                month_caption: "hidden",
+-                button_previous: "hidden",
+-                button_next: "hidden",
+-              }}
+-            />
++            <div className="grid grid-cols-7 gap-1">
++              {["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"].map((day) => (
++                <div key={day} className="py-2 text-center text-[11px] font-medium text-muted-foreground">
++                  {day}
++                </div>
++              ))}
++              {calendarDays.map((day) => {
++                const selected = isSameDay(day, selectedDate);
++                const today = isSameDay(day, new Date());
++                const hasJobs = datesWithJobs.some((jobDate) => isSameDay(jobDate, day));
++                return (
++                  <button
++                    key={day.toISOString()}
++                    type="button"
++                    onClick={() => {
++                      setSelectedDate(startOfDay(day));
++                      if (!isSameMonth(day, visibleMonth)) setVisibleMonth(day);
++                    }}
++                    className={cn(
++                      "relative flex aspect-square min-h-10 items-center justify-center rounded-lg text-sm transition-colors",
++                      selected
++                        ? "bg-primary font-semibold text-primary-foreground"
++                        : isSameMonth(day, visibleMonth)
++                          ? "hover:bg-muted"
++                          : "text-muted-foreground/40 hover:bg-muted/50",
++                      today && !selected && "border border-primary/50",
++                    )}
++                  >
++                    {format(day, "d")}
++                    {hasJobs && (
++                      <span
++                        className={cn(
++                          "absolute bottom-1 h-1.5 w-1.5 rounded-full",
++                          selected ? "bg-primary-foreground" : "bg-primary",
++                        )}
++                      />
++                    )}
++                  </button>
++                );
++              })}
++            </div>
+             <div className="mt-4 flex flex-wrap gap-3 border-t pt-4 text-[11px] text-muted-foreground">
+               <span><i className="mr-1 inline-block h-2 w-2 rounded-full bg-blue-400" />Scheduled</span>
+               <span><i className="mr-1 inline-block h-2 w-2 rounded-full bg-amber-400" />In progress</span>
+-- 
+2.51.1
+

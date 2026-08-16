@@ -1,0 +1,468 @@
+From 27c2394c550c3890a50ca11e64105f10b9352a59 Mon Sep 17 00:00:00 2001
+From: Codex <noreply@openai.com>
+Date: Sun, 2 Aug 2026 22:17:32 +0000
+Subject: [PATCH] feat: make dashboard fully operational
+
+---
+ .../dashboard/dashboard.repository.ts         | 71 ++++++++++++--
+ .../src/features/dashboard/dashboard.types.ts | 12 +++
+ .../righttemp-os/src/pages/dashboard.tsx      | 97 ++++++++++++-------
+ artifacts/righttemp-os/src/pages/leads.tsx    |  6 +-
+ 4 files changed, 139 insertions(+), 47 deletions(-)
+
+diff --git a/artifacts/righttemp-os/src/features/dashboard/dashboard.repository.ts b/artifacts/righttemp-os/src/features/dashboard/dashboard.repository.ts
+index 4534815..dda8914 100644
+--- a/artifacts/righttemp-os/src/features/dashboard/dashboard.repository.ts
++++ b/artifacts/righttemp-os/src/features/dashboard/dashboard.repository.ts
+@@ -21,12 +21,13 @@ export async function getDashboardStats(): Promise<DashboardStats> {
+ 
+   const startOfMonth = new Date(startOfToday.getFullYear(), startOfToday.getMonth(), 1);
+   const monthDate = `${startOfMonth.getFullYear()}-${String(startOfMonth.getMonth() + 1).padStart(2, "0")}-01`;
++  const todayDate = `${startOfToday.getFullYear()}-${String(startOfToday.getMonth() + 1).padStart(2, "0")}-${String(startOfToday.getDate()).padStart(2, "0")}`;
+ 
+-  const [leadStatusesResult, recentLeadsResult, customersResult, jobsResult, estimatesResult, costsResult, collectedResult] =
++  const [leadStatusesResult, recentLeadsResult, customersResult, jobsResult, estimatesResult, costsResult, collectedResult, invoicesResult] =
+     await Promise.all([
+       supabase
+         .from("leads")
+-        .select("status")
++        .select("id, status, created_at")
+         .eq("organization_id", organizationId),
+       supabase
+         .from("leads")
+@@ -40,22 +41,25 @@ export async function getDashboardStats(): Promise<DashboardStats> {
+         .eq("organization_id", organizationId),
+       supabase
+         .from("jobs")
+-        .select("id, status, scheduled_start, completed_at, po_amount")
++        .select("id, lead_id, customer_id, status, scheduled_start, completed_at, po_amount")
+         .eq("organization_id", organizationId),
+       supabase
+         .from("estimates")
+         .select("job_id, total, status")
+-        .eq("organization_id", organizationId)
+-        .not("job_id", "is", null),
++        .eq("organization_id", organizationId),
+       supabase
+         .from("job_costs")
+         .select("job_id, total_cost")
+         .eq("organization_id", organizationId),
+       supabase
+         .from("payment_transactions")
+-        .select("amount")
++        .select("amount, payment_date")
+         .eq("organization_id", organizationId)
+         .gte("payment_date", monthDate),
++      supabase
++        .from("payments")
++        .select("total, amount_paid, status, created_at")
++        .eq("organization_id", organizationId),
+     ]);
+ 
+   const firstError = [
+@@ -66,6 +70,7 @@ export async function getDashboardStats(): Promise<DashboardStats> {
+     estimatesResult.error,
+     costsResult.error,
+     collectedResult.error,
++    invoicesResult.error,
+   ].find(Boolean);
+ 
+   if (firstError) {
+@@ -84,39 +89,85 @@ export async function getDashboardStats(): Promise<DashboardStats> {
+ 
+   const customers = customersResult.data ?? [];
+   const jobs = jobsResult.data ?? [];
++  const estimates = estimatesResult.data ?? [];
++  const costs = costsResult.data ?? [];
++  const invoices = invoicesResult.data ?? [];
++  const collected = collectedResult.data ?? [];
+   const todayStartMs = startOfToday.getTime();
+   const tomorrowStartMs = startOfTomorrow.getTime();
++  const openJobs = jobs.filter((row) => ["scheduled", "in_progress", "on_hold"].includes(row.status));
++  const activeCustomerIds = new Set(
++    openJobs.map((row) => row.customer_id).filter((id): id is string => Boolean(id)),
++  );
++  const jobsByLeadId = new Set(jobs.map((row) => row.lead_id).filter(Boolean));
++  const jobIdsWithCosts = new Set(costs.map((row) => row.job_id));
++  const openEstimates = estimates.filter((row) => ["draft", "sent"].includes(row.status));
++  const wonCount = leadsByStatus.won;
++  const lostCount = leadsByStatus.lost;
+   const completedThisMonth = new Set(
+     jobs
+       .filter((row) => row.status === "completed" && row.completed_at && new Date(row.completed_at) >= startOfMonth)
+       .map((row) => row.id),
+   );
+-  const monthlyRevenue = (estimatesResult.data ?? [])
++  const monthlyRevenue = estimates
+     .filter((row) => row.job_id && completedThisMonth.has(row.job_id) && ["won", "approved"].includes(row.status))
+     .reduce((sum, row) => sum + Number(row.total), 0);
+   const monthlyPoCost = jobs
+     .filter((row) => completedThisMonth.has(row.id))
+     .reduce((sum, row) => sum + Number(row.po_amount ?? 0), 0);
+-  const monthlyManualCost = (costsResult.data ?? [])
++  const monthlyManualCost = costs
+     .filter((row) => completedThisMonth.has(row.job_id))
+     .reduce((sum, row) => sum + Number(row.total_cost), 0);
+   const monthlyCost = monthlyPoCost + monthlyManualCost;
+   const monthlyProfit = monthlyRevenue - monthlyCost;
+-  const monthlyCollected = (collectedResult.data ?? []).reduce(
++  const monthlyCollected = collected.reduce(
+     (sum, row) => sum + Number(row.amount),
+     0,
+   );
++  const collectedToday = collected
++    .filter((row) => row.payment_date === todayDate)
++    .reduce((sum, row) => sum + Number(row.amount), 0);
++  const openInvoices = invoices.filter((row) => !["paid", "void"].includes(row.status));
++  const outstandingInvoiceTotal = openInvoices.reduce(
++    (sum, row) => sum + Math.max(Number(row.total) - Number(row.amount_paid), 0),
++    0,
++  );
++  const overdueInvoices = openInvoices.filter((row) => {
++    if (!["sent", "partial"].includes(row.status)) return false;
++    const due = new Date(row.created_at);
++    due.setDate(due.getDate() + 30);
++    return due < startOfToday;
++  });
+ 
+   return {
+     totalLeads: leadStatusesResult.data?.length ?? 0,
+     totalCustomers: customers.length,
+-    activeCustomers: customers.filter((row) => row.status === "active").length,
++    activeCustomers: activeCustomerIds.size,
++    activePipelineCount: leadStatusesResult.data?.filter((row) => !["won", "lost"].includes(row.status)).length ?? 0,
++    activePipelineValue: openEstimates.reduce((sum, row) => sum + Number(row.total), 0),
++    openEstimateCount: openEstimates.length,
++    conversionRate: wonCount + lostCount > 0 ? (wonCount / (wonCount + lostCount)) * 100 : 0,
++    newLeadsToday: leadStatusesResult.data?.filter((row) => {
++      const created = new Date(row.created_at).getTime();
++      return created >= todayStartMs && created < tomorrowStartMs;
++    }).length ?? 0,
+     scheduledJobs: jobs.filter((row) => row.status === "scheduled").length,
+     jobsToday: jobs.filter((row) => {
+       if (!row.scheduled_start) return false;
+       const scheduledTime = new Date(row.scheduled_start).getTime();
+       return scheduledTime >= todayStartMs && scheduledTime < tomorrowStartMs;
+     }).length,
++    collectedToday,
++    outstandingInvoiceTotal,
++    overdueInvoiceCount: overdueInvoices.length,
++    overdueInvoiceTotal: overdueInvoices.reduce((sum, row) => sum + Math.max(Number(row.total) - Number(row.amount_paid), 0), 0),
++    unscheduledWonLeads: leadStatusesResult.data?.filter((row) => row.status === "won" && !jobsByLeadId.has(row.id)).length ?? 0,
++    jobsMissingCosts: jobs.filter((row) =>
++      !["cancelled"].includes(row.status) &&
++      Number(row.po_amount ?? 0) === 0 &&
++      !jobIdsWithCosts.has(row.id),
++    ).length,
++    pendingEstimateCount: openEstimates.length,
+     monthlyRevenue,
+     monthlyCollected,
+     monthlyCost,
+diff --git a/artifacts/righttemp-os/src/features/dashboard/dashboard.types.ts b/artifacts/righttemp-os/src/features/dashboard/dashboard.types.ts
+index ba669a7..f3a4aa1 100644
+--- a/artifacts/righttemp-os/src/features/dashboard/dashboard.types.ts
++++ b/artifacts/righttemp-os/src/features/dashboard/dashboard.types.ts
+@@ -10,8 +10,20 @@ export interface DashboardStats {
+   totalLeads: number;
+   totalCustomers: number;
+   activeCustomers: number;
++  activePipelineCount: number;
++  activePipelineValue: number;
++  openEstimateCount: number;
++  conversionRate: number;
++  newLeadsToday: number;
+   scheduledJobs: number;
+   jobsToday: number;
++  collectedToday: number;
++  outstandingInvoiceTotal: number;
++  overdueInvoiceCount: number;
++  overdueInvoiceTotal: number;
++  unscheduledWonLeads: number;
++  jobsMissingCosts: number;
++  pendingEstimateCount: number;
+   monthlyRevenue: number;
+   monthlyCollected: number;
+   monthlyCost: number;
+diff --git a/artifacts/righttemp-os/src/pages/dashboard.tsx b/artifacts/righttemp-os/src/pages/dashboard.tsx
+index 6d12dd4..dff47db 100644
+--- a/artifacts/righttemp-os/src/pages/dashboard.tsx
++++ b/artifacts/righttemp-os/src/pages/dashboard.tsx
+@@ -9,6 +9,7 @@ import {
+ } from "@/components/ui/card";
+ import {
+   Activity,
++  AlertTriangle,
+   ArrowUpRight,
+   BadgeDollarSign,
+   BriefcaseBusiness,
+@@ -17,12 +18,12 @@ import {
+   Clock3,
+   FileText,
+   Gauge,
+-  PhoneCall,
+   Plus,
+   TrendingUp,
+   UserPlus,
+   Users,
+   WalletCards,
++  Wrench,
+   Zap,
+ } from "lucide-react";
+ import { Link } from "wouter";
+@@ -73,17 +74,14 @@ export default function DashboardPage() {
+   const qualifiedLeads = stats.leadsByStatus.qualified ?? 0;
+   const proposalLeads = stats.leadsByStatus.proposal ?? 0;
+   const newLeads = stats.leadsByStatus.new ?? 0;
++  const lostLeads = stats.leadsByStatus.lost ?? 0;
+ 
+-  const activePipeline = Math.max(totalLeads - wonLeads, 0);
+   const money = new Intl.NumberFormat("en-US", {
+     style: "currency",
+     currency: "USD",
+     maximumFractionDigits: 0,
+   });
+ 
+-  const conversionRate =
+-    totalLeads > 0 ? Math.round((wonLeads / totalLeads) * 100) : 0;
+-
+   const chartData = [
+     {
+       name: "New",
+@@ -110,6 +108,11 @@ export default function DashboardPage() {
+       value: wonLeads,
+       color: "#1565E8",
+     },
++    {
++      name: "Lost",
++      value: lostLeads,
++      color: "#71717A",
++    },
+   ];
+ 
+   const statusColors: Record<string, string> = {
+@@ -154,7 +157,7 @@ export default function DashboardPage() {
+ 
+               <div className="grid grid-cols-2 gap-3">
+                 <Link
+-                  href="/leads"
++                  href="/leads?new=1"
+                   className="group flex items-center gap-3 rounded-2xl border border-red-500/20 bg-red-500/[0.06] p-4 hover:bg-red-500/[0.12] hover:border-red-500/35 transition-all"
+                 >
+                   <div className="rounded-xl bg-red-500/15 p-2.5">
+@@ -164,7 +167,7 @@ export default function DashboardPage() {
+                   <div className="min-w-0">
+                     <p className="text-sm font-semibold">New Lead</p>
+                     <p className="text-[11px] text-muted-foreground mt-0.5">
+-                      Open leads
++                      Add to pipeline
+                     </p>
+                   </div>
+                 </Link>
+@@ -178,7 +181,7 @@ export default function DashboardPage() {
+                   </div>
+ 
+                   <div className="min-w-0">
+-                    <p className="text-sm font-semibold">Add Customer</p>
++                    <p className="text-sm font-semibold">Customers</p>
+                     <p className="text-[11px] text-muted-foreground mt-0.5">
+                       Open customers
+                     </p>
+@@ -238,25 +241,25 @@ export default function DashboardPage() {
+             <div className="grid grid-cols-2 gap-3">
+               <div className="rounded-2xl border border-red-500/15 bg-red-500/[0.045] p-4">
+                 <div className="flex items-center justify-between">
+-                  <p className="text-xs text-muted-foreground">New Leads</p>
++                  <p className="text-xs text-muted-foreground">New Leads Today</p>
+                   <Activity className="w-4 h-4 text-red-400" />
+                 </div>
+ 
+-                <p className="text-2xl font-bold font-mono mt-3">{newLeads}</p>
++                <p className="text-2xl font-bold font-mono mt-3">{stats.newLeadsToday}</p>
+                 <p className="text-[11px] text-muted-foreground mt-1">
+-                  Currently marked new
++                  Added since midnight
+                 </p>
+               </div>
+ 
+               <div className="rounded-2xl border border-blue-500/15 bg-blue-500/[0.045] p-4">
+                 <div className="flex items-center justify-between">
+-                  <p className="text-xs text-muted-foreground">Calls Today</p>
+-                  <PhoneCall className="w-4 h-4 text-blue-400" />
++                  <p className="text-xs text-muted-foreground">Open Balance</p>
++                  <WalletCards className="w-4 h-4 text-blue-400" />
+                 </div>
+ 
+-                <p className="text-2xl font-bold font-mono mt-3">—</p>
++                <p className="text-xl md:text-2xl font-bold font-mono mt-3">{money.format(stats.outstandingInvoiceTotal)}</p>
+                 <p className="text-[11px] text-muted-foreground mt-1">
+-                  Phone tracking coming soon
++                  Across unpaid invoices
+                 </p>
+               </div>
+ 
+@@ -280,9 +283,9 @@ export default function DashboardPage() {
+                   <BadgeDollarSign className="w-4 h-4 text-emerald-400" />
+                 </div>
+ 
+-                <p className="text-2xl font-bold font-mono mt-3">$—</p>
++                <p className="text-xl md:text-2xl font-bold font-mono mt-3">{money.format(stats.collectedToday)}</p>
+                 <p className="text-[11px] text-muted-foreground mt-1">
+-                  Invoicing coming soon
++                  Payments collected today
+                 </p>
+               </div>
+             </div>
+@@ -330,12 +333,12 @@ export default function DashboardPage() {
+           </CardHeader>
+ 
+           <CardContent>
+-            <div className="text-3xl md:text-4xl font-extrabold font-mono">
+-              {activePipeline}
++            <div className="text-2xl md:text-4xl font-extrabold font-mono">
++              {money.format(stats.activePipelineValue)}
+             </div>
+ 
+             <p className="text-xs text-muted-foreground mt-2">
+-              Leads still in progress
++              {stats.activePipelineCount} open leads · {stats.openEstimateCount} estimates
+             </p>
+           </CardContent>
+         </Card>
+@@ -359,7 +362,7 @@ export default function DashboardPage() {
+             </div>
+ 
+             <p className="text-xs text-muted-foreground mt-2">
+-              Currently being serviced
++              Customers with open jobs
+             </p>
+           </CardContent>
+         </Card>
+@@ -379,11 +382,11 @@ export default function DashboardPage() {
+ 
+           <CardContent>
+             <div className="text-3xl md:text-4xl font-extrabold font-mono">
+-              {conversionRate}%
++              {Math.round(stats.conversionRate)}%
+             </div>
+ 
+             <p className="text-xs text-muted-foreground mt-2">
+-              Won leads divided by total leads
++              Won out of won + lost leads
+             </p>
+           </CardContent>
+         </Card>
+@@ -430,7 +433,7 @@ export default function DashboardPage() {
+             </div>
+ 
+             <p className="text-xs text-muted-foreground mt-4">
+-              {money.format(stats.monthlyRevenue)} revenue · {stats.monthlyMarginPercent === null ? "—" : `${stats.monthlyMarginPercent.toFixed(1)}%`} margin
++              {money.format(stats.monthlyRevenue)} completed-job revenue · {stats.monthlyMarginPercent === null ? "—" : `${stats.monthlyMarginPercent.toFixed(1)}%`} margin
+             </p>
+           </CardContent>
+         </Card>
+@@ -624,45 +627,69 @@ export default function DashboardPage() {
+       </section>
+ 
+       {/* Bottom Operations Strip */}
+-      <section className="grid grid-cols-1 lg:grid-cols-3 gap-4">
+-        <Card className="border-red-500/15 bg-red-500/[0.035]">
++      <section className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-4">
++        <Link href="/leads">
++        <Card className="h-full border-red-500/15 bg-red-500/[0.035] hover:border-red-500/35 transition-colors">
+           <CardContent className="p-5 flex items-center gap-4">
+             <div className="rounded-2xl bg-red-500/10 p-3">
+               <Activity className="w-5 h-5 text-red-400" />
+             </div>
+ 
+             <div>
+-              <p className="text-sm text-muted-foreground">New Leads</p>
+-              <p className="text-2xl font-bold mt-1">{newLeads}</p>
++              <p className="text-sm text-muted-foreground">Unscheduled Wins</p>
++              <p className="text-2xl font-bold mt-1">{stats.unscheduledWonLeads}</p>
++              <p className="text-xs text-muted-foreground mt-1">Won leads without a job</p>
+             </div>
+           </CardContent>
+         </Card>
++        </Link>
+ 
+-        <Card className="border-violet-500/15 bg-violet-500/[0.035]">
++        <Link href="/estimates">
++        <Card className="h-full border-violet-500/15 bg-violet-500/[0.035] hover:border-violet-500/35 transition-colors">
+           <CardContent className="p-5 flex items-center gap-4">
+             <div className="rounded-2xl bg-violet-500/10 p-3">
+               <BriefcaseBusiness className="w-5 h-5 text-violet-400" />
+             </div>
+ 
+             <div>
+-              <p className="text-sm text-muted-foreground">Proposals Pending</p>
+-              <p className="text-2xl font-bold mt-1">{proposalLeads}</p>
++              <p className="text-sm text-muted-foreground">Pending Estimates</p>
++              <p className="text-2xl font-bold mt-1">{stats.pendingEstimateCount}</p>
++              <p className="text-xs text-muted-foreground mt-1">Draft or sent estimates</p>
+             </div>
+           </CardContent>
+         </Card>
++        </Link>
+ 
+-        <Card className="border-blue-500/15 bg-blue-500/[0.035]">
++        <Link href="/invoices">
++        <Card className="h-full border-amber-500/15 bg-amber-500/[0.035] hover:border-amber-500/35 transition-colors">
+           <CardContent className="p-5 flex items-center gap-4">
+             <div className="rounded-2xl bg-blue-500/10 p-3">
+-              <CheckCircle2 className="w-5 h-5 text-blue-400" />
++              <AlertTriangle className="w-5 h-5 text-amber-400" />
++            </div>
++
++            <div>
++              <p className="text-sm text-muted-foreground">Overdue Invoices</p>
++              <p className="text-2xl font-bold mt-1">{stats.overdueInvoiceCount}</p>
++              <p className="text-xs text-muted-foreground mt-1">{money.format(stats.overdueInvoiceTotal)} overdue</p>
+             </div>
++          </CardContent>
++        </Card>
++        </Link>
+ 
++        <Link href="/jobs">
++        <Card className="h-full border-blue-500/15 bg-blue-500/[0.035] hover:border-blue-500/35 transition-colors">
++          <CardContent className="p-5 flex items-center gap-4">
++            <div className="rounded-2xl bg-blue-500/10 p-3">
++              <Wrench className="w-5 h-5 text-blue-400" />
++            </div>
+             <div>
+-              <p className="text-sm text-muted-foreground">Won Leads</p>
+-              <p className="text-2xl font-bold mt-1">{wonLeads}</p>
++              <p className="text-sm text-muted-foreground">Jobs Missing Costs</p>
++              <p className="text-2xl font-bold mt-1">{stats.jobsMissingCosts}</p>
++              <p className="text-xs text-muted-foreground mt-1">Add PO or manual costs</p>
+             </div>
+           </CardContent>
+         </Card>
++        </Link>
+       </section>
+     </div>
+   );
+diff --git a/artifacts/righttemp-os/src/pages/leads.tsx b/artifacts/righttemp-os/src/pages/leads.tsx
+index 8f4b1f8..b6f9cfa 100644
+--- a/artifacts/righttemp-os/src/pages/leads.tsx
++++ b/artifacts/righttemp-os/src/pages/leads.tsx
+@@ -64,7 +64,9 @@ type LeadFormValues = z.infer<typeof leadSchema>;
+ export default function LeadsPage() {
+   const [search, setSearch] = useState("");
+   const [statusFilter, setStatusFilter] = useState("all");
+-  const [isCreateOpen, setIsCreateOpen] = useState(false);
++  const [isCreateOpen, setIsCreateOpen] = useState(
++    () => new URLSearchParams(window.location.search).get("new") === "1",
++  );
+ 
+   const { data: leads = [], isLoading } = useLeads();
+   const createLead = useCreateLead();
+@@ -457,4 +459,4 @@ export default function LeadsPage() {
+       </div>
+     </div>
+   );
+-}
+\ No newline at end of file
++}
+-- 
+2.51.1
+

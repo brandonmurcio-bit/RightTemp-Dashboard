@@ -1,0 +1,281 @@
+From b6f47756d24950aad3913b87938b3d91f7ba7a2b Mon Sep 17 00:00:00 2001
+From: Codex <noreply@openai.com>
+Date: Sun, 2 Aug 2026 22:05:23 +0000
+Subject: [PATCH] feat: add accounts receivable dashboard
+
+---
+ artifacts/righttemp-os/src/App.tsx            |  2 +
+ .../src/components/job-invoice-card.tsx       |  2 +
+ .../righttemp-os/src/components/layout.tsx    |  5 +-
+ .../accounts-receivable.hooks.ts              |  8 +++
+ .../accounts-receivable.repository.ts         | 52 ++++++++++++++++
+ .../accounts-receivable.types.ts              | 17 ++++++
+ .../righttemp-os/src/pages/dashboard.tsx      |  6 +-
+ artifacts/righttemp-os/src/pages/invoices.tsx | 61 +++++++++++++++++++
+ 8 files changed, 149 insertions(+), 4 deletions(-)
+ create mode 100644 artifacts/righttemp-os/src/features/accounts-receivable/accounts-receivable.hooks.ts
+ create mode 100644 artifacts/righttemp-os/src/features/accounts-receivable/accounts-receivable.repository.ts
+ create mode 100644 artifacts/righttemp-os/src/features/accounts-receivable/accounts-receivable.types.ts
+ create mode 100644 artifacts/righttemp-os/src/pages/invoices.tsx
+
+diff --git a/artifacts/righttemp-os/src/App.tsx b/artifacts/righttemp-os/src/App.tsx
+index 713fc22..149c7da 100644
+--- a/artifacts/righttemp-os/src/App.tsx
++++ b/artifacts/righttemp-os/src/App.tsx
+@@ -28,6 +28,7 @@ import NewJobPage from "@/pages/new-job";
+ import EstimatesPage from "@/pages/estimates";
+ import PurchaseOrdersPage from "@/pages/purchase-orders";
+ import SchedulePage from "@/pages/schedule";
++import InvoicesPage from "@/pages/invoices";
+ const queryClient = new QueryClient();
+ 
+ function AuthenticatedRouter() {
+@@ -49,6 +50,7 @@ function AuthenticatedRouter() {
+         <Route path="/jobs/:id" component={JobDetailPage} />
+ 
+         <Route path="/estimates" component={EstimatesPage} />
++        <Route path="/invoices" component={InvoicesPage} />
+         <Route path="/purchase-orders" component={PurchaseOrdersPage} />
+ 
+         <Route component={NotFound} />
+diff --git a/artifacts/righttemp-os/src/components/job-invoice-card.tsx b/artifacts/righttemp-os/src/components/job-invoice-card.tsx
+index 2b76583..8515cda 100644
+--- a/artifacts/righttemp-os/src/components/job-invoice-card.tsx
++++ b/artifacts/righttemp-os/src/components/job-invoice-card.tsx
+@@ -10,6 +10,7 @@ import { Label } from "@/components/ui/label";
+ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+ import { Textarea } from "@/components/ui/textarea";
+ import { dashboardQueryKeys } from "@/features/dashboard/dashboard.hooks";
++import { accountsReceivableQueryKeys } from "@/features/accounts-receivable/accounts-receivable.hooks";
+ import { invoiceQueryKeys, useCreateInvoice, useDeletePaymentTransaction, useJobInvoice, useMarkInvoiceSent, useRecordPayment, useVoidInvoice } from "@/features/invoices/invoices.hooks";
+ import type { JobInvoice, PaymentMethod } from "@/features/invoices/invoices.types";
+ import { useToast } from "@/hooks/use-toast";
+@@ -77,6 +78,7 @@ export function JobInvoiceCard({ jobId }: { jobId: string }) {
+   const refresh = () => {
+     queryClient.invalidateQueries({ queryKey: invoiceQueryKeys.job(jobId) });
+     queryClient.invalidateQueries({ queryKey: dashboardQueryKeys.stats });
++    queryClient.invalidateQueries({ queryKey: accountsReceivableQueryKeys.all });
+   };
+   const fail = (title: string) => (error: Error) => toast({ title, description: error.message, variant: "destructive" as const });
+ 
+diff --git a/artifacts/righttemp-os/src/components/layout.tsx b/artifacts/righttemp-os/src/components/layout.tsx
+index ae5d8a7..7f70119 100644
+--- a/artifacts/righttemp-os/src/components/layout.tsx
++++ b/artifacts/righttemp-os/src/components/layout.tsx
+@@ -1,6 +1,6 @@
+ import React from "react";
+ import { Link, useLocation } from "wouter";
+-import { Activity, Users, LayoutDashboard, CalendarDays, FileText, LogOut } from "lucide-react";
++import { Activity, Users, LayoutDashboard, CalendarDays, FileText, LogOut, ReceiptText } from "lucide-react";
+ import { supabase } from "@/lib/supabase";
+ import { PWAPrompt } from "./pwa-prompt";
+ 
+@@ -19,6 +19,7 @@ export function Layout({ children }: { children: React.ReactNode }) {
+     { label: "Jobs", path: "/jobs", icon: CalendarDays },
+     { label: "Customers", path: "/customers", icon: Users },
+   ];
++  const desktopNavItems = [...navItems, { label: "Invoices", path: "/invoices", icon: ReceiptText }];
+ 
+   return (
+     <div className="flex min-h-[100dvh] w-full bg-background flex-col md:flex-row">
+@@ -34,7 +35,7 @@ export function Layout({ children }: { children: React.ReactNode }) {
+         </div>
+ 
+         <nav className="flex flex-col gap-1 flex-1">
+-          {navItems.map((item) => {
++          {desktopNavItems.map((item) => {
+             const isActive =
+               location === item.path ||
+               (item.path !== "/" && location.startsWith(item.path));
+diff --git a/artifacts/righttemp-os/src/features/accounts-receivable/accounts-receivable.hooks.ts b/artifacts/righttemp-os/src/features/accounts-receivable/accounts-receivable.hooks.ts
+new file mode 100644
+index 0000000..92da4c1
+--- /dev/null
++++ b/artifacts/righttemp-os/src/features/accounts-receivable/accounts-receivable.hooks.ts
+@@ -0,0 +1,8 @@
++import { useQuery } from "@tanstack/react-query";
++import { getAccountsReceivable } from "./accounts-receivable.repository";
++
++export const accountsReceivableQueryKeys = { all: ["accounts-receivable"] as const };
++
++export function useAccountsReceivable() {
++  return useQuery({ queryKey: accountsReceivableQueryKeys.all, queryFn: getAccountsReceivable });
++}
+diff --git a/artifacts/righttemp-os/src/features/accounts-receivable/accounts-receivable.repository.ts b/artifacts/righttemp-os/src/features/accounts-receivable/accounts-receivable.repository.ts
+new file mode 100644
+index 0000000..eab13e2
+--- /dev/null
++++ b/artifacts/righttemp-os/src/features/accounts-receivable/accounts-receivable.repository.ts
+@@ -0,0 +1,52 @@
++import { getCurrentOrganizationId } from "@/lib/get-current-organization-id";
++import { supabase } from "@/lib/supabase";
++import type { InvoiceStatus } from "@/features/invoices/invoices.types";
++import type { AccountsReceivableInvoice } from "./accounts-receivable.types";
++
++function dueDateFromCreatedAt(createdAt: string): string {
++  const due = new Date(createdAt);
++  due.setDate(due.getDate() + 30);
++  return due.toISOString().slice(0, 10);
++}
++
++export async function getAccountsReceivable(): Promise<AccountsReceivableInvoice[]> {
++  const organizationId = await getCurrentOrganizationId();
++  const { data, error } = await supabase
++    .from("payments")
++    .select(`
++      id, job_id, receipt_number, total, amount_paid, status, created_at,
++      customer:customers!payments_customer_id_fkey(name),
++      job:jobs!payments_job_id_fkey(title, po_number)
++    `)
++    .eq("organization_id", organizationId)
++    .order("created_at", { ascending: false });
++  if (error) throw new Error(`Unable to load invoices: ${error.message}`);
++
++  const today = new Date().toISOString().slice(0, 10);
++  return (data ?? []).map((row: any) => {
++    const total = Number(row.total);
++    const amountPaid = Number(row.amount_paid);
++    const balanceDue = Math.max(total - amountPaid, 0);
++    const status = row.status as InvoiceStatus;
++    const dueDate = dueDateFromCreatedAt(row.created_at);
++    const displayStatus =
++      dueDate < today && balanceDue > 0 && ["sent", "partial"].includes(status)
++        ? "overdue"
++        : status;
++    return {
++      id: row.id,
++      jobId: row.job_id,
++      invoiceNumber: row.receipt_number ?? "Invoice",
++      customerName: row.customer?.name ?? "Unknown customer",
++      jobTitle: row.job?.title ?? "Job",
++      poNumber: row.job?.po_number ?? "No PO",
++      total,
++      amountPaid,
++      balanceDue,
++      status,
++      displayStatus,
++      createdAt: row.created_at,
++      dueDate,
++    };
++  });
++}
+diff --git a/artifacts/righttemp-os/src/features/accounts-receivable/accounts-receivable.types.ts b/artifacts/righttemp-os/src/features/accounts-receivable/accounts-receivable.types.ts
+new file mode 100644
+index 0000000..172225a
+--- /dev/null
++++ b/artifacts/righttemp-os/src/features/accounts-receivable/accounts-receivable.types.ts
+@@ -0,0 +1,17 @@
++import type { InvoiceStatus } from "@/features/invoices/invoices.types";
++
++export interface AccountsReceivableInvoice {
++  id: string;
++  jobId: string;
++  invoiceNumber: string;
++  customerName: string;
++  jobTitle: string;
++  poNumber: string;
++  total: number;
++  amountPaid: number;
++  balanceDue: number;
++  status: InvoiceStatus;
++  displayStatus: InvoiceStatus | "overdue";
++  createdAt: string;
++  dueDate: string;
++}
+diff --git a/artifacts/righttemp-os/src/pages/dashboard.tsx b/artifacts/righttemp-os/src/pages/dashboard.tsx
+index 24e2403..6d12dd4 100644
+--- a/artifacts/righttemp-os/src/pages/dashboard.tsx
++++ b/artifacts/righttemp-os/src/pages/dashboard.tsx
+@@ -391,7 +391,8 @@ export default function DashboardPage() {
+ 
+       {/* Financial + Operations Cards */}
+       <section className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-4">
+-        <Card className="border-white/10 bg-gradient-to-br from-card to-blue-950/20">
++        <Link href="/invoices">
++        <Card className="cursor-pointer border-white/10 bg-gradient-to-br from-card to-blue-950/20 transition-colors hover:border-blue-500/40">
+           <CardContent className="p-5">
+             <div className="flex items-start justify-between">
+               <div>
+@@ -407,10 +408,11 @@ export default function DashboardPage() {
+             </div>
+ 
+             <p className="text-xs text-muted-foreground mt-4">
+-              Payments collected this month
++              Payments collected · Tap to view A/R
+             </p>
+           </CardContent>
+         </Card>
++        </Link>
+ 
+         <Card className="border-white/10 bg-gradient-to-br from-card to-red-950/20">
+           <CardContent className="p-5">
+diff --git a/artifacts/righttemp-os/src/pages/invoices.tsx b/artifacts/righttemp-os/src/pages/invoices.tsx
+new file mode 100644
+index 0000000..329d08e
+--- /dev/null
++++ b/artifacts/righttemp-os/src/pages/invoices.tsx
+@@ -0,0 +1,61 @@
++import { useMemo, useState } from "react";
++import { Link } from "wouter";
++import { AlertTriangle, Banknote, CircleDollarSign, ExternalLink, FileText, Search } from "lucide-react";
++import { Badge } from "@/components/ui/badge";
++import { Button } from "@/components/ui/button";
++import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
++import { Input } from "@/components/ui/input";
++import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
++import { useAccountsReceivable } from "@/features/accounts-receivable/accounts-receivable.hooks";
++
++const money = new Intl.NumberFormat("en-US", { style: "currency", currency: "USD", maximumFractionDigits: 0 });
++const date = new Intl.DateTimeFormat(undefined, { month: "short", day: "numeric", year: "numeric" });
++
++export default function InvoicesPage() {
++  const { data: invoices = [], isLoading, isError } = useAccountsReceivable();
++  const [search, setSearch] = useState("");
++  const [status, setStatus] = useState("open");
++
++  const filtered = useMemo(() => {
++    const term = search.trim().toLowerCase();
++    return invoices.filter((invoice) => {
++      const matchesSearch = !term || [invoice.invoiceNumber, invoice.customerName, invoice.jobTitle, invoice.poNumber].some((value) => value.toLowerCase().includes(term));
++      const matchesStatus = status === "all" || (status === "open" ? ["draft", "sent", "partial", "overdue"].includes(invoice.displayStatus) : invoice.displayStatus === status);
++      return matchesSearch && matchesStatus;
++    });
++  }, [invoices, search, status]);
++
++  const outstanding = invoices.filter((invoice) => !["paid", "void"].includes(invoice.status)).reduce((sum, invoice) => sum + invoice.balanceDue, 0);
++  const overdue = invoices.filter((invoice) => invoice.displayStatus === "overdue").reduce((sum, invoice) => sum + invoice.balanceDue, 0);
++  const paid = invoices.filter((invoice) => invoice.status !== "void").reduce((sum, invoice) => sum + invoice.amountPaid, 0);
++
++  if (isLoading) return <div className="p-8 text-muted-foreground">Loading accounts receivable...</div>;
++  if (isError) return <div className="p-8 text-destructive">Unable to load accounts receivable.</div>;
++
++  return (
++    <div className="mx-auto max-w-6xl space-y-6 p-4 md:p-8">
++      <div><h1 className="text-3xl font-bold">Invoices & Receivables</h1><p className="mt-1 text-muted-foreground">See what has been billed, collected, and is still owed.</p></div>
++      <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
++        <Card><CardContent className="flex items-center justify-between p-5"><div><p className="text-sm text-muted-foreground">Outstanding</p><p className="mt-1 text-2xl font-bold">{money.format(outstanding)}</p></div><CircleDollarSign className="h-6 w-6 text-blue-400" /></CardContent></Card>
++        <Card><CardContent className="flex items-center justify-between p-5"><div><p className="text-sm text-muted-foreground">Overdue</p><p className="mt-1 text-2xl font-bold text-red-400">{money.format(overdue)}</p></div><AlertTriangle className="h-6 w-6 text-red-400" /></CardContent></Card>
++        <Card><CardContent className="flex items-center justify-between p-5"><div><p className="text-sm text-muted-foreground">All-Time Collected</p><p className="mt-1 text-2xl font-bold text-emerald-400">{money.format(paid)}</p></div><Banknote className="h-6 w-6 text-emerald-400" /></CardContent></Card>
++      </div>
++      <div className="grid gap-3 sm:grid-cols-[1fr_190px]">
++        <div className="relative"><Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" /><Input className="pl-9" placeholder="Search invoice, customer, job, or PO..." value={search} onChange={(event) => setSearch(event.target.value)} /></div>
++        <Select value={status} onValueChange={setStatus}><SelectTrigger><SelectValue /></SelectTrigger><SelectContent><SelectItem value="open">Open balances</SelectItem><SelectItem value="all">All invoices</SelectItem><SelectItem value="draft">Draft</SelectItem><SelectItem value="sent">Sent</SelectItem><SelectItem value="partial">Partial</SelectItem><SelectItem value="overdue">Overdue</SelectItem><SelectItem value="paid">Paid</SelectItem><SelectItem value="void">Void</SelectItem></SelectContent></Select>
++      </div>
++      <div className="space-y-3">
++        {filtered.map((invoice) => (
++          <Card key={invoice.id} className="overflow-hidden">
++            <CardHeader className="flex flex-row items-start justify-between gap-3 pb-3"><div><CardTitle className="flex items-center gap-2 text-lg"><FileText className="h-4 w-4 text-primary" />{invoice.invoiceNumber}</CardTitle><p className="mt-1 text-sm text-muted-foreground">{invoice.customerName} · {invoice.poNumber}</p></div><Badge variant={invoice.displayStatus === "overdue" || invoice.status === "void" ? "destructive" : invoice.status === "paid" ? "default" : "secondary"} className="capitalize">{invoice.displayStatus}</Badge></CardHeader>
++            <CardContent className="space-y-4">
++              <div className="grid grid-cols-3 gap-2 text-sm"><div><p className="text-xs text-muted-foreground">Invoice</p><strong>{money.format(invoice.total)}</strong></div><div><p className="text-xs text-muted-foreground">Paid</p><strong className="text-emerald-400">{money.format(invoice.amountPaid)}</strong></div><div><p className="text-xs text-muted-foreground">Balance</p><strong>{money.format(invoice.balanceDue)}</strong></div></div>
++              <div className="flex flex-wrap items-center justify-between gap-3 border-t pt-3"><div><p className="text-sm font-medium">{invoice.jobTitle}</p><p className={`text-xs ${invoice.displayStatus === "overdue" ? "text-red-400" : "text-muted-foreground"}`}>Due {date.format(new Date(`${invoice.dueDate}T12:00:00`))} · Net 30</p></div><Button asChild size="sm" variant="outline"><Link href={`/jobs/${invoice.jobId}`}><ExternalLink className="mr-2 h-4 w-4" />Open Job</Link></Button></div>
++            </CardContent>
++          </Card>
++        ))}
++        {!filtered.length && <Card><CardContent className="py-12 text-center text-muted-foreground">No invoices match this view.</CardContent></Card>}
++      </div>
++    </div>
++  );
++}
+-- 
+2.51.1
+

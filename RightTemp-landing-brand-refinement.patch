@@ -1,0 +1,98 @@
+From 7d6d776054401129b6f29547059a5c7cfb10f66c Mon Sep 17 00:00:00 2001
+From: Replit Agent <agent@replit.com>
+Date: Sun, 9 Aug 2026 03:37:22 +0000
+Subject: [PATCH] feat: refine public brand color system
+
+---
+ .../src/pages/service-landing.tsx             | 34 +++++++++++--------
+ 1 file changed, 20 insertions(+), 14 deletions(-)
+
+diff --git a/artifacts/righttemp-os/src/pages/service-landing.tsx b/artifacts/righttemp-os/src/pages/service-landing.tsx
+index fa1bc56..c93974a 100644
+--- a/artifacts/righttemp-os/src/pages/service-landing.tsx
++++ b/artifacts/righttemp-os/src/pages/service-landing.tsx
+@@ -87,27 +87,32 @@ export default function ServiceLandingPage() {
+ 
+   return (
+     <main className="min-h-[100dvh] overflow-x-hidden bg-[#f7f4ee] text-slate-950 selection:bg-blue-600 selection:text-white">
+-      <header className="border-b border-white/10 bg-black">
+-        <div className="mx-auto flex max-w-6xl items-center justify-between gap-3 px-4 py-3 sm:px-6">
++      <header className="relative bg-black">
++        <div className="pointer-events-none absolute inset-0 overflow-hidden" aria-hidden="true">
++          <div className="absolute -left-20 -top-24 h-48 w-64 rounded-full bg-red-600/20 blur-3xl" />
++          <div className="absolute -right-20 -top-24 h-48 w-64 rounded-full bg-blue-600/25 blur-3xl" />
++        </div>
++        <div className="relative mx-auto flex max-w-6xl items-center justify-between gap-3 px-4 py-4 sm:px-6 sm:py-5">
+           <a href="#top" className="min-w-0" aria-label="RightTemp home">
+             <img
+               src="/icons/righttemp-main-logo.png"
+               alt="RightTemp Heating & Air Conditioning"
+-              className="h-auto w-[11.5rem] max-w-full object-contain sm:w-[15rem]"
++              className="h-auto w-[13rem] max-w-full object-contain drop-shadow-[0_8px_24px_rgba(0,0,0,.45)] sm:w-[17rem]"
+             />
+           </a>
+-          <a href="#request-service" className="shrink-0 rounded-full bg-white px-4 py-2.5 text-sm font-bold text-slate-950 shadow-sm transition hover:bg-blue-600 hover:text-white">
++          <a href="#request-service" className="shrink-0 rounded-full border border-white/80 bg-white px-4 py-2.5 text-sm font-bold text-slate-950 shadow-sm transition hover:border-blue-600 hover:bg-blue-600 hover:text-white">
+             Request service
+           </a>
+         </div>
++        <div className="relative h-1.5 bg-gradient-to-r from-red-600 via-slate-100 to-blue-600" aria-hidden="true" />
+       </header>
+ 
+       <section id="top" className="relative isolate overflow-hidden">
+-        <div className="absolute inset-0 -z-10 bg-[radial-gradient(circle_at_15%_15%,rgba(37,99,235,.16),transparent_32rem),radial-gradient(circle_at_90%_35%,rgba(239,68,68,.12),transparent_28rem)]" />
++        <div className="absolute inset-0 -z-10 bg-[linear-gradient(180deg,rgba(15,23,42,.055)_0,transparent_9rem),radial-gradient(circle_at_15%_15%,rgba(37,99,235,.16),transparent_32rem),radial-gradient(circle_at_90%_35%,rgba(239,68,68,.12),transparent_28rem)]" />
+         <div className="mx-auto grid max-w-6xl gap-10 px-4 py-12 sm:px-6 md:py-20 lg:grid-cols-[1.05fr_.95fr] lg:items-center">
+           <div>
+             <div className="mb-5 inline-flex items-center gap-2 rounded-full border border-blue-700/20 bg-blue-600/10 px-3 py-1.5 text-xs font-extrabold uppercase tracking-[.15em] text-blue-800">
+-              <BadgeCheck className="h-4 w-4" /> Licensed • Bonded • Insured
++              <BadgeCheck className="h-4 w-4 text-red-600" /> Licensed • Bonded • Insured
+             </div>
+             <h1 className="max-w-3xl text-4xl font-extrabold leading-[.98] tracking-[-.055em] sm:text-6xl">
+               Your comfort fixed.<br /><span className="text-blue-700">The right way.</span>
+@@ -116,13 +121,14 @@ export default function ServiceLandingPage() {
+               Straight answers, clean HVAC work, and options that fit your home—not a high-pressure sales pitch.
+             </p>
+             <div className="mt-7 flex flex-wrap gap-x-6 gap-y-3 text-sm font-bold text-slate-700">
+-              <span className="flex items-center gap-2"><CheckCircle2 className="h-5 w-5 text-emerald-600" /> Local HVAC professionals</span>
+-              <span className="flex items-center gap-2"><CheckCircle2 className="h-5 w-5 text-emerald-600" /> Upfront recommendations</span>
+-              <span className="flex items-center gap-2"><CheckCircle2 className="h-5 w-5 text-emerald-600" /> Residential service</span>
++              <span className="flex items-center gap-2"><CheckCircle2 className="h-5 w-5 text-blue-700" /> Local HVAC professionals</span>
++              <span className="flex items-center gap-2"><CheckCircle2 className="h-5 w-5 text-red-600" /> Upfront recommendations</span>
++              <span className="flex items-center gap-2"><CheckCircle2 className="h-5 w-5 text-blue-700" /> Residential service</span>
+             </div>
+           </div>
+ 
+-          <div id="request-service" className="scroll-mt-6 rounded-[2rem] border border-slate-900/10 bg-white p-5 shadow-[0_30px_80px_rgba(15,23,42,.16)] sm:p-7">
++          <div id="request-service" className="relative scroll-mt-6 overflow-hidden rounded-[2rem] border border-slate-900/10 bg-white p-5 pt-6 shadow-[0_30px_80px_rgba(15,23,42,.16)] sm:p-7 sm:pt-8">
++            <div className="absolute inset-x-0 top-0 h-1 bg-gradient-to-r from-red-600 via-slate-100 to-blue-600" aria-hidden="true" />
+             {status === "success" ? (
+               <div className="flex min-h-[34rem] flex-col items-center justify-center text-center" role="status">
+                 <span className="grid h-20 w-20 place-items-center rounded-full bg-emerald-100"><CheckCircle2 className="h-11 w-11 text-emerald-700" /></span>
+@@ -171,12 +177,12 @@ export default function ServiceLandingPage() {
+       <section className="bg-slate-950 px-4 py-12 text-white sm:px-6">
+         <div className="mx-auto grid max-w-6xl gap-4 sm:grid-cols-3">
+           <Trust icon={Clock3} title="Responsive service" text="Your request enters our live dispatch system immediately." />
+-          <Trust icon={ShieldCheck} title="Professional work" text="Licensed, bonded, and insured HVAC service." />
++          <Trust icon={ShieldCheck} title="Professional work" text="Licensed, bonded, and insured HVAC service." accent="red" />
+           <Trust icon={Wrench} title="Repair or replace" text="Clear options based on what your system actually needs." />
+         </div>
+       </section>
+ 
+-      <footer className="bg-[#f7f4ee] px-4 py-8 text-center text-sm text-slate-500">
++      <footer className="border-t-4 border-blue-700 bg-[#f7f4ee] px-4 py-8 text-center text-sm text-slate-500">
+         <div className="mb-2 flex justify-center gap-1 text-amber-500" aria-label="Five star service">{Array.from({ length: 5 }).map((_, i) => <Star key={i} className="h-4 w-4 fill-current" />)}</div>
+         <p className="font-bold text-slate-800">RightTemp Heating & Air Conditioning</p>
+         <p className="mt-1">Serving the High Desert and surrounding communities.</p>
+@@ -188,6 +194,6 @@ function Field({ label, children }: { label: string; children: React.ReactElemen
+   return <label className="block text-sm font-bold text-slate-700">{label}{<span className="mt-1.5 block [&>*]:min-h-12 [&>*]:w-full [&>*]:rounded-xl [&>*]:border [&>*]:border-slate-300 [&>*]:bg-white [&>*]:px-3.5 [&>*]:text-base [&>*]:font-medium [&>*]:text-slate-950 [&>*]:outline-none [&>*]:focus:border-blue-600 [&>*]:focus:ring-4 [&>*]:focus:ring-blue-600/10">{children}</span>}</label>;
+ }
+ 
+-function Trust({ icon: Icon, title, text }: { icon: typeof Clock3; title: string; text: string }) {
+-  return <div className="rounded-2xl border border-white/10 bg-white/[.04] p-5"><Icon className="h-7 w-7 text-blue-400" /><h3 className="mt-4 font-extrabold">{title}</h3><p className="mt-2 text-sm leading-6 text-slate-400">{text}</p></div>;
++function Trust({ icon: Icon, title, text, accent = "blue" }: { icon: typeof Clock3; title: string; text: string; accent?: "blue" | "red" }) {
++  return <div className="rounded-2xl border border-white/10 bg-white/[.04] p-5"><Icon className={`h-7 w-7 ${accent === "red" ? "text-red-400" : "text-blue-400"}`} /><h3 className="mt-4 font-extrabold">{title}</h3><p className="mt-2 text-sm leading-6 text-slate-400">{text}</p></div>;
+ }
+-- 
+2.51.1
+

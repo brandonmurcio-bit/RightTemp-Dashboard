@@ -1,0 +1,40 @@
+From 4de0cc3af3a915461e9a11ef1d34b504583e7541 Mon Sep 17 00:00:00 2001
+From: Brandon Murcio <307465728+brandonmurcio-bit@users.noreply.github.com>
+Date: Wed, 5 Aug 2026 04:29:00 +0000
+Subject: [PATCH] chore: configure Cloudflare deployment
+
+---
+ pnpm-workspace.yaml | 3 +++
+ wrangler.jsonc      | 9 +++++++++
+ 2 files changed, 12 insertions(+)
+ create mode 100644 wrangler.jsonc
+
+diff --git a/pnpm-workspace.yaml b/pnpm-workspace.yaml
+index 34d334c..39eccbf 100644
+--- a/pnpm-workspace.yaml
++++ b/pnpm-workspace.yaml
+@@ -158,3 +158,6 @@ overrides:
+   # drizzle-kit uses esbuild internally on an older version that's vulnerable, this overrides it
+   "@esbuild-kit/esm-loader": "npm:tsx@^4.21.0"
+   esbuild: "0.27.3"
++
++allowBuilds:
++  esbuild: true
+diff --git a/wrangler.jsonc b/wrangler.jsonc
+new file mode 100644
+index 0000000..9b986f9
+--- /dev/null
++++ b/wrangler.jsonc
+@@ -0,0 +1,9 @@
++{
++  "$schema": "node_modules/wrangler/config-schema.json",
++  "name": "righttemp-inc",
++  "compatibility_date": "2026-08-05",
++  "assets": {
++    "directory": "./artifacts/righttemp-os/dist/public",
++    "not_found_handling": "single-page-application"
++  }
++}
+-- 
+2.51.1
+

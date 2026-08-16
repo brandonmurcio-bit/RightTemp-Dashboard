@@ -1,0 +1,96 @@
+From 61c6f0af6f13ca82e1ac8f5a66fafe6ce961c029 Mon Sep 17 00:00:00 2001
+From: Codex <noreply@openai.com>
+Date: Wed, 5 Aug 2026 01:38:40 +0000
+Subject: [PATCH] fix: make job deletion reliable on mobile
+
+---
+ .../src/components/edit-job-dialog.tsx        | 42 ++++++++++++++++---
+ 1 file changed, 37 insertions(+), 5 deletions(-)
+
+diff --git a/artifacts/righttemp-os/src/components/edit-job-dialog.tsx b/artifacts/righttemp-os/src/components/edit-job-dialog.tsx
+index 634f732..e8626dc 100644
+--- a/artifacts/righttemp-os/src/components/edit-job-dialog.tsx
++++ b/artifacts/righttemp-os/src/components/edit-job-dialog.tsx
+@@ -2,6 +2,16 @@ import { useState } from "react";
+ import { useQueryClient } from "@tanstack/react-query";
+ import { Pencil, Save, Trash2 } from "lucide-react";
+ import { Button } from "@/components/ui/button";
++import {
++  AlertDialog,
++  AlertDialogAction,
++  AlertDialogCancel,
++  AlertDialogContent,
++  AlertDialogDescription,
++  AlertDialogFooter,
++  AlertDialogHeader,
++  AlertDialogTitle,
++} from "@/components/ui/alert-dialog";
+ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
+ import { Input } from "@/components/ui/input";
+ import { Label } from "@/components/ui/label";
+@@ -39,6 +49,7 @@ export function EditJobDialog({ job, onDeleted }: { job: Job; onDeleted?: () =>
+   const updateJob = useUpdateJob();
+   const deleteJob = useDeleteJob();
+   const [open, setOpen] = useState(false);
++  const [confirmDeleteOpen, setConfirmDeleteOpen] = useState(false);
+   const [title, setTitle] = useState(job.title);
+   const [status, setStatus] = useState<JobStatus>(job.status);
+   const [priority, setPriority] = useState<JobPriority>(job.priority);
+@@ -111,15 +122,12 @@ export function EditJobDialog({ job, onDeleted }: { job: Job; onDeleted?: () =>
+   };
+ 
+   const remove = () => {
+-    const confirmed = window.confirm(
+-      `Permanently delete ${job.title}? Its job costs, receipts, and job files will also be deleted. The customer and estimate will remain. This cannot be undone.`,
+-    );
+-    if (!confirmed) return;
+     deleteJob.mutate(job.id, {
+       onSuccess: () => {
+         queryClient.removeQueries({ queryKey: jobQueryKeys.detail(job.id) });
+         queryClient.invalidateQueries({ queryKey: jobQueryKeys.list() });
+         queryClient.invalidateQueries({ queryKey: dashboardQueryKeys.stats });
++        setConfirmDeleteOpen(false);
+         setOpen(false);
+         toast({ title: "Job deleted" });
+         onDeleted?.();
+@@ -155,12 +163,36 @@ export function EditJobDialog({ job, onDeleted }: { job: Job; onDeleted?: () =>
+           <div className="space-y-2"><Label>Internal job notes</Label><Textarea value={notes} onChange={(event) => setNotes(event.target.value)} /></div>
+           <Button className="w-full" onClick={save} disabled={updateJob.isPending || deleteJob.isPending}><Save className="mr-2 h-4 w-4" />{updateJob.isPending ? "Saving..." : "Save Job Changes"}</Button>
+           <div className="border-t pt-4">
+-            <Button type="button" variant="destructive" className="w-full" onClick={remove} disabled={updateJob.isPending || deleteJob.isPending}>
++            <Button type="button" variant="destructive" className="w-full" onClick={() => setConfirmDeleteOpen(true)} disabled={updateJob.isPending || deleteJob.isPending}>
+               <Trash2 className="mr-2 h-4 w-4" />{deleteJob.isPending ? "Deleting Job..." : "Delete Job"}
+             </Button>
+           </div>
+         </div>
+       </DialogContent>
++      <AlertDialog open={confirmDeleteOpen} onOpenChange={setConfirmDeleteOpen}>
++        <AlertDialogContent>
++          <AlertDialogHeader>
++            <AlertDialogTitle>Delete {job.title}?</AlertDialogTitle>
++            <AlertDialogDescription>
++              This permanently deletes the job, its costs, receipts, and job files. The customer and estimate remain. This cannot be undone.
++            </AlertDialogDescription>
++          </AlertDialogHeader>
++          <AlertDialogFooter>
++            <AlertDialogCancel disabled={deleteJob.isPending}>Keep Job</AlertDialogCancel>
++            <AlertDialogAction
++              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
++              disabled={deleteJob.isPending}
++              onClick={(event) => {
++                event.preventDefault();
++                remove();
++              }}
++            >
++              <Trash2 className="mr-2 h-4 w-4" />
++              {deleteJob.isPending ? "Deleting Job..." : "Yes, Delete Job"}
++            </AlertDialogAction>
++          </AlertDialogFooter>
++        </AlertDialogContent>
++      </AlertDialog>
+     </Dialog>
+   );
+ }
+-- 
+2.51.1
+

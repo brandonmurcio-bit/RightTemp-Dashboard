@@ -1,0 +1,397 @@
+From 97a5875fd036fc84087b4ec78683582614bed130 Mon Sep 17 00:00:00 2001
+From: Codex <noreply@openai.com>
+Date: Sun, 2 Aug 2026 19:39:26 +0000
+Subject: [PATCH] feat: add customer contract uploads
+
+---
+ .../customer-documents.hooks.ts               |  26 +++++
+ .../customer-documents.repository.ts          |  75 ++++++++++++
+ .../customer-documents.types.ts               |  21 ++++
+ .../src/pages/customer-detail.tsx             | 108 +++++++++++++++++-
+ ...193558_add_customer_contract_documents.sql |  80 +++++++++++++
+ 5 files changed, 309 insertions(+), 1 deletion(-)
+ create mode 100644 artifacts/righttemp-os/src/features/customer-documents/customer-documents.hooks.ts
+ create mode 100644 artifacts/righttemp-os/src/features/customer-documents/customer-documents.repository.ts
+ create mode 100644 artifacts/righttemp-os/src/features/customer-documents/customer-documents.types.ts
+ create mode 100644 supabase/migrations/20260802193558_add_customer_contract_documents.sql
+
+diff --git a/artifacts/righttemp-os/src/features/customer-documents/customer-documents.hooks.ts b/artifacts/righttemp-os/src/features/customer-documents/customer-documents.hooks.ts
+new file mode 100644
+index 0000000..5f6cbf5
+--- /dev/null
++++ b/artifacts/righttemp-os/src/features/customer-documents/customer-documents.hooks.ts
+@@ -0,0 +1,26 @@
++import { useMutation, useQuery } from "@tanstack/react-query";
++import { deleteCustomerDocument, getCustomerDocuments, uploadCustomerDocument } from "./customer-documents.repository";
++import type { CustomerDocument } from "./customer-documents.types";
++
++export const customerDocumentQueryKeys = {
++  list: (customerId: string) => ["customer-documents", customerId] as const,
++};
++
++export function useCustomerDocuments(customerId: string) {
++  return useQuery({
++    queryKey: customerDocumentQueryKeys.list(customerId),
++    queryFn: () => getCustomerDocuments(customerId),
++    enabled: !!customerId,
++  });
++}
++
++export function useUploadCustomerDocument() {
++  return useMutation({
++    mutationFn: ({ customerId, file }: { customerId: string; file: File }) =>
++      uploadCustomerDocument(customerId, file),
++  });
++}
++
++export function useDeleteCustomerDocument() {
++  return useMutation({ mutationFn: (document: CustomerDocument) => deleteCustomerDocument(document) });
++}
+diff --git a/artifacts/righttemp-os/src/features/customer-documents/customer-documents.repository.ts b/artifacts/righttemp-os/src/features/customer-documents/customer-documents.repository.ts
+new file mode 100644
+index 0000000..3b2969d
+--- /dev/null
++++ b/artifacts/righttemp-os/src/features/customer-documents/customer-documents.repository.ts
+@@ -0,0 +1,75 @@
++import { getCurrentOrganizationId } from "@/lib/get-current-organization-id";
++import { supabase } from "@/lib/supabase";
++import type { CustomerDocument, CustomerDocumentRow } from "./customer-documents.types";
++
++const bucket = "customer-documents";
++
++function mapDocument(row: CustomerDocumentRow): CustomerDocument {
++  return {
++    id: row.id,
++    customerId: row.customer_id,
++    documentType: row.document_type,
++    fileName: row.file_name,
++    storagePath: row.storage_path,
++    mimeType: row.mime_type,
++    fileSize: row.file_size,
++    createdAt: row.created_at,
++  };
++}
++
++export async function getCustomerDocuments(customerId: string): Promise<CustomerDocument[]> {
++  const organizationId = await getCurrentOrganizationId();
++  const { data, error } = await supabase
++    .from("customer_documents")
++    .select("id, customer_id, document_type, file_name, storage_path, mime_type, file_size, created_at")
++    .eq("organization_id", organizationId)
++    .eq("customer_id", customerId)
++    .order("created_at", { ascending: false });
++  if (error) throw new Error(`Unable to load contracts: ${error.message}`);
++  return ((data ?? []) as CustomerDocumentRow[]).map(mapDocument);
++}
++
++export async function uploadCustomerDocument(customerId: string, file: File): Promise<void> {
++  const organizationId = await getCurrentOrganizationId();
++  const { data: authData } = await supabase.auth.getUser();
++  if (!authData.user) throw new Error("You must be signed in to upload contracts.");
++  const safeName = file.name.replace(/[^a-zA-Z0-9._-]/g, "-");
++  const storagePath = `${organizationId}/${customerId}/${crypto.randomUUID()}-${safeName}`;
++  const { error: uploadError } = await supabase.storage
++    .from(bucket)
++    .upload(storagePath, file, { contentType: file.type, upsert: false });
++  if (uploadError) throw new Error(`Unable to upload contract: ${uploadError.message}`);
++
++  const { error: metadataError } = await supabase.from("customer_documents").insert({
++    organization_id: organizationId,
++    customer_id: customerId,
++    document_type: "contract",
++    file_name: file.name,
++    storage_path: storagePath,
++    mime_type: file.type || null,
++    file_size: file.size,
++    uploaded_by: authData.user.id,
++  });
++  if (metadataError) {
++    await supabase.storage.from(bucket).remove([storagePath]);
++    throw new Error(`Unable to save contract record: ${metadataError.message}`);
++  }
++}
++
++export async function openCustomerDocument(storagePath: string): Promise<string> {
++  const { data, error } = await supabase.storage.from(bucket).createSignedUrl(storagePath, 60);
++  if (error) throw new Error(`Unable to open contract: ${error.message}`);
++  return data.signedUrl;
++}
++
++export async function deleteCustomerDocument(document: CustomerDocument): Promise<void> {
++  const organizationId = await getCurrentOrganizationId();
++  const { error: storageError } = await supabase.storage.from(bucket).remove([document.storagePath]);
++  if (storageError) throw new Error(`Unable to delete contract file: ${storageError.message}`);
++  const { error } = await supabase
++    .from("customer_documents")
++    .delete()
++    .eq("id", document.id)
++    .eq("organization_id", organizationId);
++  if (error) throw new Error(`Unable to delete contract record: ${error.message}`);
++}
+diff --git a/artifacts/righttemp-os/src/features/customer-documents/customer-documents.types.ts b/artifacts/righttemp-os/src/features/customer-documents/customer-documents.types.ts
+new file mode 100644
+index 0000000..04de2c9
+--- /dev/null
++++ b/artifacts/righttemp-os/src/features/customer-documents/customer-documents.types.ts
+@@ -0,0 +1,21 @@
++export interface CustomerDocument {
++  id: string;
++  customerId: string;
++  documentType: "contract" | "proposal" | "warranty" | "permit" | "other";
++  fileName: string;
++  storagePath: string;
++  mimeType: string | null;
++  fileSize: number | null;
++  createdAt: string;
++}
++
++export interface CustomerDocumentRow {
++  id: string;
++  customer_id: string;
++  document_type: CustomerDocument["documentType"];
++  file_name: string;
++  storage_path: string;
++  mime_type: string | null;
++  file_size: number | null;
++  created_at: string;
++}
+diff --git a/artifacts/righttemp-os/src/pages/customer-detail.tsx b/artifacts/righttemp-os/src/pages/customer-detail.tsx
+index c987db3..50f6eb7 100644
+--- a/artifacts/righttemp-os/src/pages/customer-detail.tsx
++++ b/artifacts/righttemp-os/src/pages/customer-detail.tsx
+@@ -1,4 +1,4 @@
+-import React, { useEffect, useRef } from "react";
++import React, { useEffect, useRef, useState } from "react";
+ import { useParams, useLocation } from "wouter";
+ import {
+   customerQueryKeys,
+@@ -22,6 +22,8 @@ import {
+   Wrench,
+   ShieldAlert,
+   FileText,
++  Download,
++  Upload,
+ } from "lucide-react";
+ import { Button } from "@/components/ui/button";
+ import { Input } from "@/components/ui/input";
+@@ -53,6 +55,13 @@ import {
+   CardTitle,
+   CardDescription,
+ } from "@/components/ui/card";
++import {
++  customerDocumentQueryKeys,
++  useCustomerDocuments,
++  useDeleteCustomerDocument,
++  useUploadCustomerDocument,
++} from "@/features/customer-documents/customer-documents.hooks";
++import { openCustomerDocument } from "@/features/customer-documents/customer-documents.repository";
+ 
+ const customerUpdateSchema = z.object({
+   name: z.string().min(1, "Name is required"),
+@@ -83,6 +92,10 @@ export default function CustomerDetailPage() {
+   const { data: customer, isLoading, isError } = useCustomer(id);
+   const updateCustomer = useUpdateCustomer();
+   const deleteCustomer = useDeleteCustomer();
++  const { data: documents, isLoading: documentsLoading } = useCustomerDocuments(id);
++  const uploadDocument = useUploadCustomerDocument();
++  const deleteDocument = useDeleteCustomerDocument();
++  const [selectedFile, setSelectedFile] = useState<File | null>(null);
+ 
+   const form = useForm<CustomerUpdateValues>({
+     resolver: zodResolver(customerUpdateSchema),
+@@ -168,6 +181,34 @@ export default function CustomerDetailPage() {
+     });
+   };
+ 
++  const handleContractUpload = () => {
++    if (!selectedFile) return;
++    uploadDocument.mutate(
++      { customerId: id, file: selectedFile },
++      {
++        onSuccess: () => {
++          queryClient.invalidateQueries({ queryKey: customerDocumentQueryKeys.list(id) });
++          setSelectedFile(null);
++          toast({ title: "Contract uploaded", description: "The document is saved in this customer profile." });
++        },
++        onError: (error) => toast({ title: "Upload failed", description: error.message, variant: "destructive" }),
++      },
++    );
++  };
++
++  const handleOpenDocument = async (storagePath: string) => {
++    try {
++      const url = await openCustomerDocument(storagePath);
++      window.open(url, "_blank", "noopener,noreferrer");
++    } catch (error) {
++      toast({
++        title: "Unable to open document",
++        description: error instanceof Error ? error.message : "Download failed.",
++        variant: "destructive",
++      });
++    }
++  };
++
+   if (isLoading) {
+     return (
+       <div className="p-8 animate-pulse text-muted-foreground">
+@@ -350,6 +391,71 @@ export default function CustomerDetailPage() {
+               />
+             </CardContent>
+           </Card>
++
++          <Card>
++            <CardHeader>
++              <CardTitle className="flex items-center gap-2">
++                <FileText className="w-5 h-5 text-primary" /> Contracts & Documents
++              </CardTitle>
++              <CardDescription>
++                Private contracts, proposals, warranties, and permits.
++              </CardDescription>
++            </CardHeader>
++            <CardContent className="space-y-4">
++              <div className="flex flex-col gap-3 sm:flex-row">
++                <Input
++                  type="file"
++                  accept=".pdf,.doc,.docx,image/jpeg,image/png,image/webp,image/heic,image/heif"
++                  onChange={(event) => setSelectedFile(event.target.files?.[0] ?? null)}
++                />
++                <Button type="button" onClick={handleContractUpload} disabled={!selectedFile || uploadDocument.isPending}>
++                  <Upload className="w-4 h-4 mr-2" />
++                  {uploadDocument.isPending ? "Uploading..." : "Upload"}
++                </Button>
++              </div>
++
++              {documentsLoading && <p className="text-sm text-muted-foreground">Loading documents...</p>}
++              {!documentsLoading && (documents ?? []).length === 0 && (
++                <p className="rounded-lg border border-dashed p-6 text-center text-sm text-muted-foreground">
++                  No contracts uploaded yet.
++                </p>
++              )}
++              <div className="space-y-2">
++                {(documents ?? []).map((document) => (
++                  <div key={document.id} className="flex items-center justify-between gap-3 rounded-lg border p-3">
++                    <div className="min-w-0">
++                      <p className="truncate text-sm font-medium">{document.fileName}</p>
++                      <p className="text-xs text-muted-foreground">
++                        {new Date(document.createdAt).toLocaleDateString()}
++                        {document.fileSize ? ` · ${(document.fileSize / 1024 / 1024).toFixed(1)} MB` : ""}
++                      </p>
++                    </div>
++                    <div className="flex gap-2">
++                      <Button type="button" size="sm" variant="outline" onClick={() => handleOpenDocument(document.storagePath)}>
++                        <Download className="w-4 h-4 mr-2" /> Open
++                      </Button>
++                      <Button
++                        type="button"
++                        size="sm"
++                        variant="outline"
++                        className="text-destructive"
++                        disabled={deleteDocument.isPending}
++                        onClick={() => {
++                          if (!window.confirm(`Delete ${document.fileName}?`)) return;
++                          deleteDocument.mutate(document, {
++                            onSuccess: () => queryClient.invalidateQueries({ queryKey: customerDocumentQueryKeys.list(id) }),
++                            onError: (error) => toast({ title: "Delete failed", description: error.message, variant: "destructive" }),
++                          });
++                        }}
++                      >
++                        <Trash2 className="w-4 h-4" />
++                      </Button>
++                    </div>
++                  </div>
++                ))}
++              </div>
++            </CardContent>
++          </Card>
+         </div>
+ 
+         <div className="space-y-6">
+diff --git a/supabase/migrations/20260802193558_add_customer_contract_documents.sql b/supabase/migrations/20260802193558_add_customer_contract_documents.sql
+new file mode 100644
+index 0000000..7fadb1e
+--- /dev/null
++++ b/supabase/migrations/20260802193558_add_customer_contract_documents.sql
+@@ -0,0 +1,80 @@
++CREATE TABLE public.customer_documents (
++  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
++  organization_id UUID NOT NULL REFERENCES public.organizations(id) ON DELETE CASCADE,
++  customer_id UUID NOT NULL REFERENCES public.customers(id) ON DELETE CASCADE,
++  document_type TEXT NOT NULL DEFAULT 'contract'
++    CHECK (document_type IN ('contract', 'proposal', 'warranty', 'permit', 'other')),
++  file_name TEXT NOT NULL,
++  storage_path TEXT NOT NULL UNIQUE,
++  mime_type TEXT,
++  file_size BIGINT,
++  uploaded_by UUID REFERENCES auth.users(id) ON DELETE SET NULL,
++  created_at TIMESTAMPTZ NOT NULL DEFAULT now()
++);
++
++CREATE INDEX idx_customer_documents_customer_id
++  ON public.customer_documents(customer_id);
++CREATE INDEX idx_customer_documents_org_id
++  ON public.customer_documents(organization_id);
++CREATE INDEX idx_customer_documents_uploaded_by
++  ON public.customer_documents(uploaded_by);
++
++ALTER TABLE public.customer_documents ENABLE ROW LEVEL SECURITY;
++
++CREATE POLICY "Org members can read customer documents"
++  ON public.customer_documents FOR SELECT TO authenticated
++  USING (private.is_org_member(organization_id));
++
++CREATE POLICY "Org members can upload customer documents"
++  ON public.customer_documents FOR INSERT TO authenticated
++  WITH CHECK (
++    private.is_org_member(organization_id)
++    AND uploaded_by = (SELECT auth.uid())
++  );
++
++CREATE POLICY "Org admins can delete customer documents"
++  ON public.customer_documents FOR DELETE TO authenticated
++  USING (private.is_org_role(organization_id, 'admin'));
++
++INSERT INTO storage.buckets (id, name, public, file_size_limit, allowed_mime_types)
++VALUES (
++  'customer-documents',
++  'customer-documents',
++  false,
++  26214400,
++  ARRAY[
++    'application/pdf',
++    'image/jpeg',
++    'image/png',
++    'image/webp',
++    'image/heic',
++    'image/heif',
++    'application/msword',
++    'application/vnd.openxmlformats-officedocument.wordprocessingml.document'
++  ]
++)
++ON CONFLICT (id) DO UPDATE SET
++  public = EXCLUDED.public,
++  file_size_limit = EXCLUDED.file_size_limit,
++  allowed_mime_types = EXCLUDED.allowed_mime_types;
++
++CREATE POLICY "Org members can read customer storage"
++  ON storage.objects FOR SELECT TO authenticated
++  USING (
++    bucket_id = 'customer-documents'
++    AND private.is_org_member(public.storage_org_id(name))
++  );
++
++CREATE POLICY "Org members can upload customer storage"
++  ON storage.objects FOR INSERT TO authenticated
++  WITH CHECK (
++    bucket_id = 'customer-documents'
++    AND private.is_org_member(public.storage_org_id(name))
++  );
++
++CREATE POLICY "Org admins can delete customer storage"
++  ON storage.objects FOR DELETE TO authenticated
++  USING (
++    bucket_id = 'customer-documents'
++    AND private.is_org_role(public.storage_org_id(name), 'admin')
++  );
+-- 
+2.51.1
+

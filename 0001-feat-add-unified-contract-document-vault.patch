@@ -1,0 +1,293 @@
+From 49f74b46d434347d7adf11737a277dca43c9b27a Mon Sep 17 00:00:00 2001
+From: OpenAI Codex <codex@openai.com>
+Date: Sun, 16 Aug 2026 07:25:51 +0000
+Subject: [PATCH] feat: add unified contract document vault
+
+---
+ .../src/components/contract-vault.tsx         | 38 +++++++++++++++++
+ .../src/features/contracts/contracts.hooks.ts |  8 ++++
+ .../contracts/contracts.repository.ts         | 42 +++++++++++++++++++
+ .../src/features/contracts/contracts.types.ts |  6 +++
+ .../estimates/estimates.repository.ts         |  5 +++
+ .../src/features/jobs/jobs.repository.ts      | 16 +++++++
+ .../src/pages/customer-detail.tsx             |  2 +
+ .../righttemp-os/src/pages/estimates.tsx      |  2 +
+ .../righttemp-os/src/pages/job-detail.tsx     |  2 +
+ ...60816020000_add_unified_contract_vault.sql | 41 ++++++++++++++++++
+ 10 files changed, 162 insertions(+)
+ create mode 100644 artifacts/righttemp-os/src/components/contract-vault.tsx
+ create mode 100644 artifacts/righttemp-os/src/features/contracts/contracts.hooks.ts
+ create mode 100644 artifacts/righttemp-os/src/features/contracts/contracts.repository.ts
+ create mode 100644 artifacts/righttemp-os/src/features/contracts/contracts.types.ts
+ create mode 100644 supabase/migrations/20260816020000_add_unified_contract_vault.sql
+
+diff --git a/artifacts/righttemp-os/src/components/contract-vault.tsx b/artifacts/righttemp-os/src/components/contract-vault.tsx
+new file mode 100644
+index 0000000..100a76e
+--- /dev/null
++++ b/artifacts/righttemp-os/src/components/contract-vault.tsx
+@@ -0,0 +1,38 @@
++import { useRef, useState } from "react";
++import { Camera, Check, ExternalLink, FileSignature, RotateCcw, Upload } from "lucide-react";
++import { Button } from "@/components/ui/button";
++import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
++import { Input } from "@/components/ui/input";
++import { Label } from "@/components/ui/label";
++import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
++import { useContracts, useSignContract, useUpdateContractStatus, useUploadContract } from "@/features/contracts/contracts.hooks";
++import { openContract } from "@/features/contracts/contracts.repository";
++import type { ContractDocument, ContractStatus } from "@/features/contracts/contracts.types";
++import { useToast } from "@/hooks/use-toast";
++
++export function ContractVault({ estimateId, customerId, jobId, allowUpload = false, allowSign = false }: { estimateId?: string; customerId?: string; jobId?: string; allowUpload?: boolean; allowSign?: boolean }) {
++  const uploadInput = useRef<HTMLInputElement>(null); const cameraInput = useRef<HTMLInputElement>(null);
++  const { data: contracts = [], isLoading } = useContracts({ estimateId, customerId, jobId });
++  const upload = useUploadContract(); const updateStatus = useUpdateContractStatus(); const { toast } = useToast();
++  const [signing, setSigning] = useState<ContractDocument | null>(null);
++  const sendFile = (file?: File) => { if (!file || !estimateId) return; upload.mutate({ estimateId, file }, { onSuccess: () => toast({ title: "Contract uploaded" }), onError: (error) => toast({ title: "Upload failed", description: error.message, variant: "destructive" }) }); };
++  const open = async (contract: ContractDocument) => { try { window.open(await openContract(contract.storagePath), "_blank", "noopener,noreferrer"); } catch (error) { toast({ title: "Unable to open", description: error instanceof Error ? error.message : "Try again.", variant: "destructive" }); } };
++  return <div className="space-y-3 border-t pt-4">
++    <div className="flex flex-wrap items-center justify-between gap-2"><p className="flex items-center gap-2 text-sm font-semibold"><FileSignature className="h-4 w-4 text-primary" />Contracts & Documents <span className="text-xs font-normal text-muted-foreground">({contracts.length})</span></p>
++      {allowUpload && estimateId && <div className="flex gap-2"><input ref={uploadInput} className="hidden" type="file" accept="application/pdf,image/*,.doc,.docx" onChange={(e) => sendFile(e.target.files?.[0])}/><input ref={cameraInput} className="hidden" type="file" accept="image/*" capture="environment" onChange={(e) => sendFile(e.target.files?.[0])}/><Button size="sm" variant="outline" onClick={() => uploadInput.current?.click()} disabled={upload.isPending}><Upload className="mr-2 h-4 w-4"/>Upload</Button><Button size="sm" variant="outline" onClick={() => cameraInput.current?.click()} disabled={upload.isPending}><Camera className="mr-2 h-4 w-4"/>Camera</Button></div>}
++    </div>
++    {isLoading && <p className="text-xs text-muted-foreground">Loading contracts...</p>}
++    {contracts.map((contract) => <div key={contract.id} className="rounded-lg border p-3"><div className="flex flex-wrap items-center justify-between gap-3"><div className="min-w-0"><p className="truncate text-sm font-medium">{contract.fileName}</p><p className="text-xs text-muted-foreground">{contract.signedAt ? `Signed by ${contract.signedBy} · ${new Date(contract.signedAt).toLocaleString()}` : new Date(contract.createdAt).toLocaleDateString()}</p></div><div className="flex items-center gap-2"><Select value={contract.status} disabled={contract.status === "signed"} onValueChange={(status) => updateStatus.mutate({ id: contract.id, status: status as ContractStatus })}><SelectTrigger className="w-28"><SelectValue/></SelectTrigger><SelectContent><SelectItem value="draft">Draft</SelectItem><SelectItem value="presented">Presented</SelectItem><SelectItem value="signed">Signed</SelectItem></SelectContent></Select><Button size="icon" variant="ghost" onClick={() => open(contract)}><ExternalLink className="h-4 w-4"/></Button>{allowSign && contract.status !== "signed" && <Button size="sm" onClick={() => setSigning(contract)}><FileSignature className="mr-2 h-4 w-4"/>Sign</Button>}</div></div>{contract.signatureDataUrl && <img src={contract.signatureDataUrl} alt="Customer signature" className="mt-3 h-16 max-w-xs rounded bg-white object-contain"/>}</div>)}
++    <ContractSigningDialog contract={signing} onClose={() => setSigning(null)} />
++  </div>;
++}
++
++function ContractSigningDialog({ contract, onClose }: { contract: ContractDocument | null; onClose: () => void }) {
++  const canvasRef = useRef<HTMLCanvasElement>(null); const drawing = useRef(false); const [name, setName] = useState(""); const [hasSignature, setHasSignature] = useState(false); const sign = useSignContract();
++  const point = (e: React.PointerEvent<HTMLCanvasElement>) => { const b = e.currentTarget.getBoundingClientRect(); return { x: (e.clientX-b.left)*(e.currentTarget.width/b.width), y: (e.clientY-b.top)*(e.currentTarget.height/b.height) }; };
++  const start = (e: React.PointerEvent<HTMLCanvasElement>) => { drawing.current=true; e.currentTarget.setPointerCapture(e.pointerId); const p=point(e); const c=e.currentTarget.getContext("2d")!; c.beginPath(); c.moveTo(p.x,p.y); };
++  const draw = (e: React.PointerEvent<HTMLCanvasElement>) => { if(!drawing.current)return; const p=point(e); const c=e.currentTarget.getContext("2d")!; c.lineWidth=3;c.lineCap="round";c.strokeStyle="#111827";c.lineTo(p.x,p.y);c.stroke();setHasSignature(true); };
++  const clear = () => { canvasRef.current?.getContext("2d")?.clearRect(0,0,700,180); setHasSignature(false); };
++  const submit = () => { const canvas=canvasRef.current; if(!contract||!canvas||!name.trim()||!hasSignature)return; sign.mutate({id:contract.id,signedBy:name.trim(),signatureDataUrl:canvas.toDataURL("image/png",.75)},{onSuccess:onClose}); };
++  return <Dialog open={Boolean(contract)} onOpenChange={(open)=>{if(!open)onClose();}}><DialogContent><DialogHeader><DialogTitle>Sign Contract</DialogTitle></DialogHeader><p className="text-sm text-muted-foreground">Signing confirms the customer reviewed and accepted {contract?.fileName}.</p><div><Label>Customer’s full legal name</Label><Input value={name} onChange={(e)=>setName(e.target.value)}/></div><div><div className="mb-2 flex justify-between"><Label>Customer signature</Label><Button size="sm" variant="ghost" onClick={clear}><RotateCcw className="mr-1 h-4 w-4"/>Clear</Button></div><canvas ref={canvasRef} width={700} height={180} onPointerDown={start} onPointerMove={draw} onPointerUp={()=>drawing.current=false} onPointerCancel={()=>drawing.current=false} className="h-32 w-full touch-none rounded-lg border bg-white"/></div><Button disabled={!name.trim()||!hasSignature||sign.isPending} onClick={submit}><Check className="mr-2 h-4 w-4"/>{sign.isPending?"Saving Signature...":"Sign Contract"}</Button></DialogContent></Dialog>;
++}
+diff --git a/artifacts/righttemp-os/src/features/contracts/contracts.hooks.ts b/artifacts/righttemp-os/src/features/contracts/contracts.hooks.ts
+new file mode 100644
+index 0000000..d38c3f0
+--- /dev/null
++++ b/artifacts/righttemp-os/src/features/contracts/contracts.hooks.ts
+@@ -0,0 +1,8 @@
++import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
++import { getContracts, signContract, updateContractStatus, uploadContract } from "./contracts.repository";
++import type { ContractStatus } from "./contracts.types";
++export const contractKeys = { all: ["contracts"] as const, list: (key: string) => ["contracts", key] as const };
++export function useContracts(filters: { estimateId?: string; customerId?: string; jobId?: string }) { const key = filters.estimateId ?? filters.customerId ?? filters.jobId ?? "none"; return useQuery({ queryKey: contractKeys.list(key), queryFn: () => getContracts(filters), enabled: key !== "none" }); }
++export function useUploadContract() { const client = useQueryClient(); return useMutation({ mutationFn: ({ estimateId, file }: { estimateId: string; file: File }) => uploadContract(estimateId, file), onSuccess: () => client.invalidateQueries({ queryKey: contractKeys.all }) }); }
++export function useUpdateContractStatus() { const client = useQueryClient(); return useMutation({ mutationFn: ({ id, status }: { id: string; status: ContractStatus }) => updateContractStatus(id, status), onSuccess: () => client.invalidateQueries({ queryKey: contractKeys.all }) }); }
++export function useSignContract() { const client = useQueryClient(); return useMutation({ mutationFn: ({ id, signedBy, signatureDataUrl }: { id: string; signedBy: string; signatureDataUrl: string }) => signContract(id, signedBy, signatureDataUrl), onSuccess: () => client.invalidateQueries({ queryKey: contractKeys.all }) }); }
+diff --git a/artifacts/righttemp-os/src/features/contracts/contracts.repository.ts b/artifacts/righttemp-os/src/features/contracts/contracts.repository.ts
+new file mode 100644
+index 0000000..a227a16
+--- /dev/null
++++ b/artifacts/righttemp-os/src/features/contracts/contracts.repository.ts
+@@ -0,0 +1,42 @@
++import { getCurrentOrganizationId } from "@/lib/get-current-organization-id";
++import { supabase } from "@/lib/supabase";
++import type { ContractDocument, ContractStatus } from "./contracts.types";
++
++const bucket = "customer-documents";
++const select = "id, estimate_id, customer_id, job_id, file_name, storage_path, mime_type, status, signed_by, signature_data_url, signed_at, created_at";
++const map = (row: any): ContractDocument => ({ id: row.id, estimateId: row.estimate_id, customerId: row.customer_id, jobId: row.job_id, fileName: row.file_name, storagePath: row.storage_path, mimeType: row.mime_type, status: row.status, signedBy: row.signed_by, signatureDataUrl: row.signature_data_url, signedAt: row.signed_at, createdAt: row.created_at });
++
++export async function getContracts(filters: { estimateId?: string; customerId?: string; jobId?: string }) {
++  const organizationId = await getCurrentOrganizationId();
++  let query = supabase.from("contract_documents").select(select).eq("organization_id", organizationId);
++  if (filters.estimateId) query = query.eq("estimate_id", filters.estimateId);
++  if (filters.customerId) query = query.eq("customer_id", filters.customerId);
++  if (filters.jobId) query = query.eq("job_id", filters.jobId);
++  const { data, error } = await query.order("created_at", { ascending: false });
++  if (error) throw new Error(`Unable to load contracts: ${error.message}`);
++  return (data ?? []).map(map);
++}
++
++export async function uploadContract(estimateId: string, file: File) {
++  const organizationId = await getCurrentOrganizationId();
++  const { data: auth } = await supabase.auth.getUser();
++  if (!auth.user) throw new Error("You must be signed in.");
++  const safeName = file.name.replace(/[^a-zA-Z0-9._-]/g, "-");
++  const storagePath = `${organizationId}/contracts/${estimateId}/${crypto.randomUUID()}-${safeName}`;
++  const { error: uploadError } = await supabase.storage.from(bucket).upload(storagePath, file, { contentType: file.type || "application/octet-stream" });
++  if (uploadError) throw new Error(`Unable to upload contract: ${uploadError.message}`);
++  const { error } = await supabase.from("contract_documents").insert({ organization_id: organizationId, estimate_id: estimateId, file_name: file.name, storage_path: storagePath, mime_type: file.type || null, file_size: file.size, uploaded_by: auth.user.id });
++  if (error) { await supabase.storage.from(bucket).remove([storagePath]); throw new Error(`Unable to save contract: ${error.message}`); }
++}
++
++export async function updateContractStatus(id: string, status: ContractStatus) {
++  const organizationId = await getCurrentOrganizationId();
++  const { error } = await supabase.from("contract_documents").update({ status }).eq("id", id).eq("organization_id", organizationId);
++  if (error) throw new Error(`Unable to update contract: ${error.message}`);
++}
++export async function signContract(id: string, signedBy: string, signatureDataUrl: string) {
++  const organizationId = await getCurrentOrganizationId();
++  const { error } = await supabase.from("contract_documents").update({ status: "signed", signed_by: signedBy, signature_data_url: signatureDataUrl, signed_at: new Date().toISOString() }).eq("id", id).eq("organization_id", organizationId);
++  if (error) throw new Error(`Unable to sign contract: ${error.message}`);
++}
++export async function openContract(path: string) { const { data, error } = await supabase.storage.from(bucket).createSignedUrl(path, 60); if (error) throw new Error(error.message); return data.signedUrl; }
+diff --git a/artifacts/righttemp-os/src/features/contracts/contracts.types.ts b/artifacts/righttemp-os/src/features/contracts/contracts.types.ts
+new file mode 100644
+index 0000000..052ba18
+--- /dev/null
++++ b/artifacts/righttemp-os/src/features/contracts/contracts.types.ts
+@@ -0,0 +1,6 @@
++export type ContractStatus = "draft" | "presented" | "signed";
++export interface ContractDocument {
++  id: string; estimateId: string; customerId: string | null; jobId: string | null;
++  fileName: string; storagePath: string; mimeType: string | null; status: ContractStatus;
++  signedBy: string | null; signatureDataUrl: string | null; signedAt: string | null; createdAt: string;
++}
+diff --git a/artifacts/righttemp-os/src/features/estimates/estimates.repository.ts b/artifacts/righttemp-os/src/features/estimates/estimates.repository.ts
+index 0ceb010..b8377c2 100644
+--- a/artifacts/righttemp-os/src/features/estimates/estimates.repository.ts
++++ b/artifacts/righttemp-os/src/features/estimates/estimates.repository.ts
+@@ -135,5 +135,10 @@ export async function acceptEstimate(
+   if (error) throw new Error(`Unable to accept estimate: ${error.message}`);
+   const result = Array.isArray(data) ? data[0] : data;
+   if (!result?.customer_id) throw new Error("Estimate acceptance returned no customer.");
++  const { error: contractError } = await supabase
++    .from("contract_documents")
++    .update({ customer_id: result.customer_id })
++    .eq("estimate_id", estimate.id);
++  if (contractError) throw new Error(`Estimate accepted, but its contracts could not be linked: ${contractError.message}`);
+   return { customerId: result.customer_id as string, leadId: (result.lead_id as string | null) ?? null };
+ }
+diff --git a/artifacts/righttemp-os/src/features/jobs/jobs.repository.ts b/artifacts/righttemp-os/src/features/jobs/jobs.repository.ts
+index 36c21c7..8d33fa4 100644
+--- a/artifacts/righttemp-os/src/features/jobs/jobs.repository.ts
++++ b/artifacts/righttemp-os/src/features/jobs/jobs.repository.ts
+@@ -54,6 +54,22 @@ export async function createJob(input: JobInput): Promise<Job> {
+     .select(jobSelect)
+     .single();
+   if (error) throw new Error(`Unable to create job: ${error.message}`);
++  if (input.leadId) {
++    const { data: linkedEstimates } = await supabase
++      .from("estimates")
++      .select("id")
++      .eq("organization_id", organizationId)
++      .eq("lead_id", input.leadId);
++    const estimateIds = (linkedEstimates ?? []).map((estimate) => estimate.id);
++    if (estimateIds.length) {
++      const { error: contractError } = await supabase
++        .from("contract_documents")
++        .update({ customer_id: input.customerId, job_id: data.id })
++        .eq("organization_id", organizationId)
++        .in("estimate_id", estimateIds);
++      if (contractError) throw new Error(`Job created, but contracts could not be linked: ${contractError.message}`);
++    }
++  }
+   return mapJobRowToJob(data as JobRow);
+ }
+ 
+diff --git a/artifacts/righttemp-os/src/pages/customer-detail.tsx b/artifacts/righttemp-os/src/pages/customer-detail.tsx
+index 8cc578d..1295bd3 100644
+--- a/artifacts/righttemp-os/src/pages/customer-detail.tsx
++++ b/artifacts/righttemp-os/src/pages/customer-detail.tsx
+@@ -64,6 +64,7 @@ import {
+   useUploadCustomerDocument,
+ } from "@/features/customer-documents/customer-documents.hooks";
+ import { openCustomerDocument } from "@/features/customer-documents/customer-documents.repository";
++import { ContractVault } from "@/components/contract-vault";
+ import { useJobs } from "@/features/jobs/jobs.hooks";
+ 
+ const customerUpdateSchema = z.object({
+@@ -477,6 +478,7 @@ export default function CustomerDetailPage() {
+                   </div>
+                 ))}
+               </div>
++              <ContractVault customerId={id} />
+             </CardContent>
+           </Card>
+ 
+diff --git a/artifacts/righttemp-os/src/pages/estimates.tsx b/artifacts/righttemp-os/src/pages/estimates.tsx
+index 2f2e79c..bcfb4eb 100644
+--- a/artifacts/righttemp-os/src/pages/estimates.tsx
++++ b/artifacts/righttemp-os/src/pages/estimates.tsx
+@@ -24,6 +24,7 @@ import type { Estimate, EstimateInput, EstimateStatus } from "@/features/estimat
+ import { useToast } from "@/hooks/use-toast";
+ import { EstimateWalkthroughPhotos } from "@/components/estimate-walkthrough-photos";
+ import { EstimateProposalDialog } from "@/components/estimate-proposal-dialog";
++import { ContractVault } from "@/components/contract-vault";
+ 
+ const money = new Intl.NumberFormat("en-US", { style: "currency", currency: "USD" });
+ const statusColors: Record<EstimateStatus, string> = {
+@@ -246,6 +247,7 @@ export default function EstimatesPage() {
+                 </div>
+               )}
+               <EstimateWalkthroughPhotos estimateId={estimate.id} />
++              <ContractVault estimateId={estimate.id} allowUpload />
+             </CardContent>
+           </Card>
+         ))}
+diff --git a/artifacts/righttemp-os/src/pages/job-detail.tsx b/artifacts/righttemp-os/src/pages/job-detail.tsx
+index 2e9a3af..85774c8 100644
+--- a/artifacts/righttemp-os/src/pages/job-detail.tsx
++++ b/artifacts/righttemp-os/src/pages/job-detail.tsx
+@@ -7,6 +7,7 @@ import { JobWalkthroughCard } from "@/components/job-walkthrough-card";
+ import { EditJobDialog } from "@/components/edit-job-dialog";
+ import { JobProfitabilityCard } from "@/components/job-profitability-card";
+ import { JobInvoiceCard } from "@/components/job-invoice-card";
++import { ContractVault } from "@/components/contract-vault";
+ 
+ const dateFormatter = new Intl.DateTimeFormat(undefined, {
+   dateStyle: "full",
+@@ -99,6 +100,7 @@ export default function JobDetailPage() {
+       )}
+ 
+       <JobWalkthroughCard jobId={job.id} />
++      <Card><CardHeader><CardTitle>Contracts</CardTitle></CardHeader><CardContent><ContractVault jobId={job.id} allowSign /></CardContent></Card>
+       <JobInvoiceCard jobId={job.id} />
+       <JobProfitabilityCard jobId={job.id} />
+     </div>
+diff --git a/supabase/migrations/20260816020000_add_unified_contract_vault.sql b/supabase/migrations/20260816020000_add_unified_contract_vault.sql
+new file mode 100644
+index 0000000..5660b44
+--- /dev/null
++++ b/supabase/migrations/20260816020000_add_unified_contract_vault.sql
+@@ -0,0 +1,41 @@
++CREATE TABLE IF NOT EXISTS public.contract_documents (
++  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
++  organization_id UUID NOT NULL REFERENCES public.organizations(id) ON DELETE CASCADE,
++  estimate_id UUID NOT NULL REFERENCES public.estimates(id) ON DELETE CASCADE,
++  customer_id UUID REFERENCES public.customers(id) ON DELETE SET NULL,
++  job_id UUID REFERENCES public.jobs(id) ON DELETE SET NULL,
++  file_name TEXT NOT NULL,
++  storage_path TEXT NOT NULL UNIQUE,
++  mime_type TEXT,
++  file_size BIGINT,
++  status TEXT NOT NULL DEFAULT 'draft' CHECK (status IN ('draft', 'presented', 'signed')),
++  signed_by TEXT,
++  signature_data_url TEXT,
++  signed_at TIMESTAMPTZ,
++  uploaded_by UUID REFERENCES auth.users(id) ON DELETE SET NULL,
++  created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
++  updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
++  CHECK ((status = 'signed') = (signed_at IS NOT NULL))
++);
++ALTER TABLE public.contract_documents ENABLE ROW LEVEL SECURITY;
++CREATE POLICY "Org members can read contract documents" ON public.contract_documents FOR SELECT TO authenticated USING (private.is_org_member(organization_id));
++CREATE POLICY "Org members can upload contract documents" ON public.contract_documents FOR INSERT TO authenticated WITH CHECK (private.is_org_member(organization_id) AND uploaded_by = (SELECT auth.uid()));
++CREATE POLICY "Contract owners can update contract documents" ON public.contract_documents FOR UPDATE TO authenticated
++  USING (uploaded_by = (SELECT auth.uid()) OR private.is_org_role(organization_id, 'admin'))
++  WITH CHECK (uploaded_by = (SELECT auth.uid()) OR private.is_org_role(organization_id, 'admin'));
++CREATE POLICY "Org admins can delete contract documents" ON public.contract_documents FOR DELETE TO authenticated USING (private.is_org_role(organization_id, 'admin'));
++CREATE INDEX IF NOT EXISTS idx_contract_documents_estimate ON public.contract_documents(estimate_id);
++CREATE INDEX IF NOT EXISTS idx_contract_documents_customer ON public.contract_documents(customer_id) WHERE customer_id IS NOT NULL;
++CREATE INDEX IF NOT EXISTS idx_contract_documents_job ON public.contract_documents(job_id) WHERE job_id IS NOT NULL;
++CREATE OR REPLACE FUNCTION private.protect_signed_contract_document() RETURNS trigger LANGUAGE plpgsql SECURITY INVOKER SET search_path = '' AS $$
++BEGIN
++  IF OLD.signed_at IS NOT NULL AND (
++    NEW.file_name IS DISTINCT FROM OLD.file_name OR NEW.storage_path IS DISTINCT FROM OLD.storage_path OR
++    NEW.status IS DISTINCT FROM OLD.status OR NEW.signed_by IS DISTINCT FROM OLD.signed_by OR
++    NEW.signature_data_url IS DISTINCT FROM OLD.signature_data_url OR NEW.signed_at IS DISTINCT FROM OLD.signed_at
++  ) THEN RAISE EXCEPTION 'Signed contract content is immutable'; END IF;
++  RETURN NEW;
++END;
++$$;
++CREATE TRIGGER trg_protect_signed_contract_document BEFORE UPDATE ON public.contract_documents FOR EACH ROW EXECUTE FUNCTION private.protect_signed_contract_document();
++CREATE TRIGGER trg_contract_documents_updated_at BEFORE UPDATE ON public.contract_documents FOR EACH ROW EXECUTE FUNCTION public.set_updated_at();
+-- 
+2.51.1
+

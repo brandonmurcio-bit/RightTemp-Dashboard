@@ -1,0 +1,555 @@
+From 7056b69072be91f11facafab89d6bd6c5778540e Mon Sep 17 00:00:00 2001
+From: Codex <noreply@openai.com>
+Date: Sun, 2 Aug 2026 18:53:06 +0000
+Subject: [PATCH 1/2] perf: optimize RLS and foreign keys
+
+---
+ ...02184838_optimize_rls_and_foreign_keys.sql | 38 +++++++++++++++++++
+ 1 file changed, 38 insertions(+)
+ create mode 100644 supabase/migrations/20260802184838_optimize_rls_and_foreign_keys.sql
+
+diff --git a/supabase/migrations/20260802184838_optimize_rls_and_foreign_keys.sql b/supabase/migrations/20260802184838_optimize_rls_and_foreign_keys.sql
+new file mode 100644
+index 0000000..d53aa0d
+--- /dev/null
++++ b/supabase/migrations/20260802184838_optimize_rls_and_foreign_keys.sql
+@@ -0,0 +1,38 @@
++-- Evaluate auth.uid() once per statement instead of once per candidate row.
++DROP POLICY IF EXISTS "Users can insert their own profile"
++  ON public.profiles;
++
++CREATE POLICY "Users can insert their own profile"
++  ON public.profiles FOR INSERT
++  TO authenticated
++  WITH CHECK (id = (SELECT auth.uid()));
++
++DROP POLICY IF EXISTS "Users can update their own profile"
++  ON public.profiles;
++
++CREATE POLICY "Users can update their own profile"
++  ON public.profiles FOR UPDATE
++  TO authenticated
++  USING (id = (SELECT auth.uid()))
++  WITH CHECK (id = (SELECT auth.uid()));
++
++DROP POLICY IF EXISTS "Org admins can remove members"
++  ON public.organization_members;
++
++CREATE POLICY "Org admins can remove members"
++  ON public.organization_members FOR DELETE
++  TO authenticated
++  USING (
++    private.is_org_role(organization_id, 'admin')
++    OR user_id = (SELECT auth.uid())
++  );
++
++-- Cover foreign keys used by joins and cascading parent updates/deletes.
++CREATE INDEX IF NOT EXISTS idx_estimates_lead_id
++  ON public.estimates (lead_id);
++
++CREATE INDEX IF NOT EXISTS idx_org_members_invited_by
++  ON public.organization_members (invited_by);
++
++CREATE INDEX IF NOT EXISTS idx_payments_estimate_id
++  ON public.payments (estimate_id);
+-- 
+2.51.1
+
+
+From 19edcac28dd7a46432bb9069c27f35173192cc43 Mon Sep 17 00:00:00 2001
+From: Codex <noreply@openai.com>
+Date: Sun, 2 Aug 2026 18:53:06 +0000
+Subject: [PATCH 2/2] feat: add estimate workflow
+
+---
+ artifacts/righttemp-os/src/App.tsx            |   5 +-
+ .../righttemp-os/src/components/layout.tsx    |   5 +-
+ .../src/features/estimates/estimates.hooks.ts |  20 +++
+ .../estimates/estimates.repository.ts         |  79 +++++++++
+ .../src/features/estimates/estimates.types.ts |  51 ++++++
+ .../src/pages/customer-detail.tsx             |   8 +
+ .../righttemp-os/src/pages/dashboard.tsx      |  15 +-
+ .../righttemp-os/src/pages/estimates.tsx      | 153 ++++++++++++++++++
+ .../righttemp-os/src/pages/job-detail.tsx     |   9 +-
+ 9 files changed, 332 insertions(+), 13 deletions(-)
+ create mode 100644 artifacts/righttemp-os/src/features/estimates/estimates.hooks.ts
+ create mode 100644 artifacts/righttemp-os/src/features/estimates/estimates.repository.ts
+ create mode 100644 artifacts/righttemp-os/src/features/estimates/estimates.types.ts
+ create mode 100644 artifacts/righttemp-os/src/pages/estimates.tsx
+
+diff --git a/artifacts/righttemp-os/src/App.tsx b/artifacts/righttemp-os/src/App.tsx
+index 3454c7f..d41d944 100644
+--- a/artifacts/righttemp-os/src/App.tsx
++++ b/artifacts/righttemp-os/src/App.tsx
+@@ -25,6 +25,7 @@ import CustomerDetailPage from "@/pages/customer-detail";
+ import JobsPage from "@/pages/jobs";
+ import JobDetailPage from "@/pages/job-detail";
+ import NewJobPage from "@/pages/new-job";
++import EstimatesPage from "@/pages/estimates";
+ const queryClient = new QueryClient();
+ 
+ function AuthenticatedRouter() {
+@@ -44,6 +45,8 @@ function AuthenticatedRouter() {
+         <Route path="/jobs/new" component={NewJobPage} />
+         <Route path="/jobs/:id" component={JobDetailPage} />
+ 
++        <Route path="/estimates" component={EstimatesPage} />
++
+         <Route component={NotFound} />
+       </Switch>
+     </Layout>
+@@ -120,4 +123,4 @@ function App() {
+   );
+ }
+ 
+-export default App;
+\ No newline at end of file
++export default App;
+diff --git a/artifacts/righttemp-os/src/components/layout.tsx b/artifacts/righttemp-os/src/components/layout.tsx
+index bbc8421..2360860 100644
+--- a/artifacts/righttemp-os/src/components/layout.tsx
++++ b/artifacts/righttemp-os/src/components/layout.tsx
+@@ -1,6 +1,6 @@
+ import React from "react";
+ import { Link, useLocation } from "wouter";
+-import { Activity, Users, LayoutDashboard, CalendarDays, LogOut } from "lucide-react";
++import { Activity, Users, LayoutDashboard, CalendarDays, FileText, LogOut } from "lucide-react";
+ import { supabase } from "@/lib/supabase";
+ import { PWAPrompt } from "./pwa-prompt";
+ 
+@@ -17,6 +17,7 @@ export function Layout({ children }: { children: React.ReactNode }) {
+     { label: "Leads", path: "/leads", icon: Activity },
+     { label: "Customers", path: "/customers", icon: Users },
+     { label: "Jobs", path: "/jobs", icon: CalendarDays },
++    { label: "Estimates", path: "/estimates", icon: FileText },
+   ];
+ 
+   return (
+@@ -117,4 +118,4 @@ export function Layout({ children }: { children: React.ReactNode }) {
+       <PWAPrompt />
+     </div>
+   );
+-}
+\ No newline at end of file
++}
+diff --git a/artifacts/righttemp-os/src/features/estimates/estimates.hooks.ts b/artifacts/righttemp-os/src/features/estimates/estimates.hooks.ts
+new file mode 100644
+index 0000000..473e532
+--- /dev/null
++++ b/artifacts/righttemp-os/src/features/estimates/estimates.hooks.ts
+@@ -0,0 +1,20 @@
++import { useMutation, useQuery } from "@tanstack/react-query";
++import { createEstimate, getEstimates, updateEstimateStatus } from "./estimates.repository";
++import type { EstimateInput, EstimateStatus } from "./estimates.types";
++
++export const estimateQueryKeys = { all: ["estimates"] as const };
++
++export function useEstimates() {
++  return useQuery({ queryKey: estimateQueryKeys.all, queryFn: getEstimates });
++}
++
++export function useCreateEstimate() {
++  return useMutation({ mutationFn: (input: EstimateInput) => createEstimate(input) });
++}
++
++export function useUpdateEstimateStatus() {
++  return useMutation({
++    mutationFn: ({ id, status }: { id: string; status: EstimateStatus }) =>
++      updateEstimateStatus(id, status),
++  });
++}
+diff --git a/artifacts/righttemp-os/src/features/estimates/estimates.repository.ts b/artifacts/righttemp-os/src/features/estimates/estimates.repository.ts
+new file mode 100644
+index 0000000..9e3b6e7
+--- /dev/null
++++ b/artifacts/righttemp-os/src/features/estimates/estimates.repository.ts
+@@ -0,0 +1,79 @@
++import { getCurrentOrganizationId } from "@/lib/get-current-organization-id";
++import { supabase } from "@/lib/supabase";
++import type { Estimate, EstimateInput, EstimateRow, EstimateStatus } from "./estimates.types";
++
++const estimateSelect = `
++  id, customer_id, estimate_number, title, line_items, subtotal, tax_rate,
++  tax_amount, total, status, valid_until, notes, created_at,
++  customers!estimates_customer_id_fkey(name)
++`;
++
++function mapEstimate(row: EstimateRow): Estimate {
++  const customer = Array.isArray(row.customers) ? row.customers[0] : row.customers;
++  return {
++    id: row.id,
++    customerId: row.customer_id,
++    customerName: customer?.name ?? "Unknown customer",
++    estimateNumber: row.estimate_number,
++    title: row.title,
++    lineItems: row.line_items ?? [],
++    subtotal: Number(row.subtotal),
++    taxRate: Number(row.tax_rate),
++    taxAmount: Number(row.tax_amount),
++    total: Number(row.total),
++    status: row.status,
++    validUntil: row.valid_until,
++    notes: row.notes,
++    createdAt: row.created_at,
++  };
++}
++
++export async function getEstimates(): Promise<Estimate[]> {
++  const organizationId = await getCurrentOrganizationId();
++  const { data, error } = await supabase
++    .from("estimates")
++    .select(estimateSelect)
++    .eq("organization_id", organizationId)
++    .order("created_at", { ascending: false });
++  if (error) throw new Error(`Unable to load estimates: ${error.message}`);
++  return ((data ?? []) as unknown as EstimateRow[]).map(mapEstimate);
++}
++
++export async function createEstimate(input: EstimateInput): Promise<Estimate> {
++  const organizationId = await getCurrentOrganizationId();
++  const subtotal = input.lineItems.reduce((sum, item) => sum + item.total, 0);
++  const taxAmount = subtotal * input.taxRate;
++  const { data, error } = await supabase
++    .from("estimates")
++    .insert({
++      organization_id: organizationId,
++      customer_id: input.customerId,
++      title: input.title,
++      line_items: input.lineItems,
++      subtotal,
++      tax_rate: input.taxRate,
++      tax_amount: taxAmount,
++      total: subtotal + taxAmount,
++      status: "draft",
++      valid_until: input.validUntil || null,
++      notes: input.notes || null,
++    })
++    .select(estimateSelect)
++    .single();
++  if (error) throw new Error(`Unable to create estimate: ${error.message}`);
++  return mapEstimate(data as unknown as EstimateRow);
++}
++
++export async function updateEstimateStatus(id: string, status: EstimateStatus): Promise<void> {
++  const organizationId = await getCurrentOrganizationId();
++  const timestamps = {
++    ...(status === "sent" ? { sent_at: new Date().toISOString() } : {}),
++    ...(status === "approved" ? { approved_at: new Date().toISOString() } : {}),
++  };
++  const { error } = await supabase
++    .from("estimates")
++    .update({ status, ...timestamps })
++    .eq("id", id)
++    .eq("organization_id", organizationId);
++  if (error) throw new Error(`Unable to update estimate: ${error.message}`);
++}
+diff --git a/artifacts/righttemp-os/src/features/estimates/estimates.types.ts b/artifacts/righttemp-os/src/features/estimates/estimates.types.ts
+new file mode 100644
+index 0000000..d28a297
+--- /dev/null
++++ b/artifacts/righttemp-os/src/features/estimates/estimates.types.ts
+@@ -0,0 +1,51 @@
++export type EstimateStatus = "draft" | "sent" | "approved" | "rejected" | "expired";
++
++export interface EstimateLineItem {
++  description: string;
++  quantity: number;
++  unit_price: number;
++  total: number;
++}
++
++export interface Estimate {
++  id: string;
++  customerId: string;
++  customerName: string;
++  estimateNumber: string | null;
++  title: string;
++  lineItems: EstimateLineItem[];
++  subtotal: number;
++  taxRate: number;
++  taxAmount: number;
++  total: number;
++  status: EstimateStatus;
++  validUntil: string | null;
++  notes: string | null;
++  createdAt: string;
++}
++
++export interface EstimateInput {
++  customerId: string;
++  title: string;
++  lineItems: EstimateLineItem[];
++  taxRate: number;
++  validUntil?: string;
++  notes?: string;
++}
++
++export interface EstimateRow {
++  id: string;
++  customer_id: string;
++  estimate_number: string | null;
++  title: string;
++  line_items: EstimateLineItem[];
++  subtotal: number | string;
++  tax_rate: number | string;
++  tax_amount: number | string;
++  total: number | string;
++  status: EstimateStatus;
++  valid_until: string | null;
++  notes: string | null;
++  created_at: string;
++  customers: { name: string } | { name: string }[] | null;
++}
+diff --git a/artifacts/righttemp-os/src/pages/customer-detail.tsx b/artifacts/righttemp-os/src/pages/customer-detail.tsx
+index b4a1c2f..c987db3 100644
+--- a/artifacts/righttemp-os/src/pages/customer-detail.tsx
++++ b/artifacts/righttemp-os/src/pages/customer-detail.tsx
+@@ -21,6 +21,7 @@ import {
+   Building,
+   Wrench,
+   ShieldAlert,
++  FileText,
+ } from "lucide-react";
+ import { Button } from "@/components/ui/button";
+ import { Input } from "@/components/ui/input";
+@@ -214,6 +215,13 @@ export default function CustomerDetailPage() {
+           </div>
+         </div>
+         <div className="flex items-center gap-2">
++          <Button
++            variant="outline"
++            size="sm"
++            onClick={() => setLocation(`/estimates?customerId=${customer.id}`)}
++          >
++            <FileText className="w-4 h-4 mr-2" /> Create Estimate
++          </Button>
+           <Button
+             variant="outline"
+             size="sm"
+diff --git a/artifacts/righttemp-os/src/pages/dashboard.tsx b/artifacts/righttemp-os/src/pages/dashboard.tsx
+index 96a5439..331d0e5 100644
+--- a/artifacts/righttemp-os/src/pages/dashboard.tsx
++++ b/artifacts/righttemp-os/src/pages/dashboard.tsx
+@@ -180,22 +180,21 @@ export default function DashboardPage() {
+                   </div>
+                 </Link>
+ 
+-                <button
+-                  type="button"
+-                  disabled
+-                  className="flex items-center gap-3 rounded-2xl border border-white/10 bg-white/[0.025] p-4 text-left opacity-55 cursor-not-allowed"
++                <Link
++                  href="/estimates"
++                  className="group flex items-center gap-3 rounded-2xl border border-amber-500/20 bg-amber-500/[0.06] p-4 hover:bg-amber-500/[0.12] hover:border-amber-500/35 transition-all"
+                 >
+-                  <div className="rounded-xl bg-white/5 p-2.5">
+-                    <FileText className="w-5 h-5 text-muted-foreground" />
++                  <div className="rounded-xl bg-amber-500/15 p-2.5">
++                    <FileText className="w-5 h-5 text-amber-400" />
+                   </div>
+ 
+                   <div className="min-w-0">
+                     <p className="text-sm font-semibold">Create Estimate</p>
+                     <p className="text-[11px] text-muted-foreground mt-0.5">
+-                      Coming soon
++                      Open estimates
+                     </p>
+                   </div>
+-                </button>
++                </Link>
+ 
+                 <Link
+                   href="/jobs/new"
+diff --git a/artifacts/righttemp-os/src/pages/estimates.tsx b/artifacts/righttemp-os/src/pages/estimates.tsx
+new file mode 100644
+index 0000000..a2b1520
+--- /dev/null
++++ b/artifacts/righttemp-os/src/pages/estimates.tsx
+@@ -0,0 +1,153 @@
++import { useEffect, useMemo, useState } from "react";
++import { useQueryClient } from "@tanstack/react-query";
++import { CheckCircle2, FileText, Plus, Send } from "lucide-react";
++import { Button } from "@/components/ui/button";
++import { Card, CardContent } from "@/components/ui/card";
++import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
++import { Input } from "@/components/ui/input";
++import { Label } from "@/components/ui/label";
++import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
++import { Textarea } from "@/components/ui/textarea";
++import { useCustomers } from "@/features/customers/customers.hooks";
++import {
++  estimateQueryKeys,
++  useCreateEstimate,
++  useEstimates,
++  useUpdateEstimateStatus,
++} from "@/features/estimates/estimates.hooks";
++import type { EstimateStatus } from "@/features/estimates/estimates.types";
++import { useToast } from "@/hooks/use-toast";
++
++const money = new Intl.NumberFormat("en-US", { style: "currency", currency: "USD" });
++const statusColors: Record<EstimateStatus, string> = {
++  draft: "bg-muted text-muted-foreground",
++  sent: "bg-blue-500/10 text-blue-400",
++  approved: "bg-emerald-500/10 text-emerald-400",
++  rejected: "bg-red-500/10 text-red-400",
++  expired: "bg-amber-500/10 text-amber-400",
++};
++
++export default function EstimatesPage() {
++  const queryClient = useQueryClient();
++  const { toast } = useToast();
++  const { data: estimates, isLoading, isError } = useEstimates();
++  const { data: customers } = useCustomers();
++  const createEstimate = useCreateEstimate();
++  const updateStatus = useUpdateEstimateStatus();
++  const [open, setOpen] = useState(false);
++  const [customerId, setCustomerId] = useState("");
++  const [title, setTitle] = useState("HVAC System Proposal");
++  const [description, setDescription] = useState("");
++  const [quantity, setQuantity] = useState("1");
++  const [unitPrice, setUnitPrice] = useState("");
++  const [taxPercent, setTaxPercent] = useState("0");
++  const [validUntil, setValidUntil] = useState("");
++  const [notes, setNotes] = useState("");
++
++  useEffect(() => {
++    const requestedCustomerId = new URLSearchParams(window.location.search).get("customerId");
++    if (requestedCustomerId) {
++      setCustomerId(requestedCustomerId);
++      setOpen(true);
++    }
++  }, []);
++
++  const subtotal = useMemo(
++    () => (Number(quantity) || 0) * (Number(unitPrice) || 0),
++    [quantity, unitPrice],
++  );
++  const total = subtotal * (1 + (Number(taxPercent) || 0) / 100);
++
++  const submit = () => {
++    if (!customerId || !title.trim() || !description.trim() || subtotal <= 0) {
++      toast({ title: "Missing estimate details", description: "Choose a customer and enter a priced line item.", variant: "destructive" });
++      return;
++    }
++    createEstimate.mutate(
++      {
++        customerId,
++        title: title.trim(),
++        lineItems: [{
++          description: description.trim(),
++          quantity: Number(quantity),
++          unit_price: Number(unitPrice),
++          total: subtotal,
++        }],
++        taxRate: (Number(taxPercent) || 0) / 100,
++        validUntil,
++        notes,
++      },
++      {
++        onSuccess: () => {
++          queryClient.invalidateQueries({ queryKey: estimateQueryKeys.all });
++          setOpen(false);
++          setDescription("");
++          setUnitPrice("");
++          setNotes("");
++          toast({ title: "Estimate created", description: "The proposal was saved as a draft." });
++        },
++        onError: (error) => toast({ title: "Estimate failed", description: error.message, variant: "destructive" }),
++      },
++    );
++  };
++
++  const changeStatus = (id: string, status: EstimateStatus) => {
++    updateStatus.mutate({ id, status }, {
++      onSuccess: () => queryClient.invalidateQueries({ queryKey: estimateQueryKeys.all }),
++      onError: (error) => toast({ title: "Status update failed", description: error.message, variant: "destructive" }),
++    });
++  };
++
++  return (
++    <div className="p-6 md:p-8 max-w-7xl mx-auto space-y-6">
++      <div className="flex items-center justify-between gap-4">
++        <div>
++          <h1 className="text-3xl font-bold tracking-tight">Estimates</h1>
++          <p className="text-muted-foreground mt-2">Build and track customer proposals.</p>
++        </div>
++        <Dialog open={open} onOpenChange={setOpen}>
++          <DialogTrigger asChild><Button><Plus className="h-4 w-4 mr-2" />New Estimate</Button></DialogTrigger>
++          <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto">
++            <DialogHeader><DialogTitle>Create Estimate</DialogTitle></DialogHeader>
++            <div className="space-y-5">
++              <div className="space-y-2"><Label>Customer</Label><Select value={customerId} onValueChange={setCustomerId}><SelectTrigger><SelectValue placeholder="Select customer" /></SelectTrigger><SelectContent>{(customers ?? []).map((customer) => <SelectItem key={customer.id} value={customer.id}>{customer.name}</SelectItem>)}</SelectContent></Select></div>
++              <div className="space-y-2"><Label>Proposal title</Label><Input value={title} onChange={(e) => setTitle(e.target.value)} /></div>
++              <div className="space-y-2"><Label>Line item</Label><Input placeholder="3-ton Daikin FIT system with installation" value={description} onChange={(e) => setDescription(e.target.value)} /></div>
++              <div className="grid grid-cols-3 gap-3">
++                <div className="space-y-2"><Label>Quantity</Label><Input type="number" min="0.01" step="0.01" value={quantity} onChange={(e) => setQuantity(e.target.value)} /></div>
++                <div className="space-y-2"><Label>Unit price</Label><Input type="number" min="0" step="0.01" value={unitPrice} onChange={(e) => setUnitPrice(e.target.value)} /></div>
++                <div className="space-y-2"><Label>Tax %</Label><Input type="number" min="0" step="0.01" value={taxPercent} onChange={(e) => setTaxPercent(e.target.value)} /></div>
++              </div>
++              <div className="rounded-lg border p-4 flex justify-between"><span className="text-muted-foreground">Estimate total</span><strong className="text-xl">{money.format(total)}</strong></div>
++              <div className="space-y-2"><Label>Valid until</Label><Input type="date" value={validUntil} onChange={(e) => setValidUntil(e.target.value)} /></div>
++              <div className="space-y-2"><Label>Customer notes</Label><Textarea value={notes} onChange={(e) => setNotes(e.target.value)} placeholder="Warranty, payment schedule, exclusions..." /></div>
++              <Button className="w-full" onClick={submit} disabled={createEstimate.isPending}>{createEstimate.isPending ? "Saving..." : "Save Draft Estimate"}</Button>
++            </div>
++          </DialogContent>
++        </Dialog>
++      </div>
++
++      {isLoading && <Card><CardContent className="py-12 text-center">Loading estimates...</CardContent></Card>}
++      {isError && <Card><CardContent className="py-12 text-center text-destructive">Unable to load estimates.</CardContent></Card>}
++      {!isLoading && !isError && (estimates ?? []).length === 0 && <Card><CardContent className="py-14 text-center text-muted-foreground"><FileText className="h-10 w-10 mx-auto mb-3 opacity-50" />No estimates yet. Create your first customer proposal.</CardContent></Card>}
++      <div className="grid gap-4 md:grid-cols-2">
++        {(estimates ?? []).map((estimate) => (
++          <Card key={estimate.id}>
++            <CardContent className="p-5 space-y-4">
++              <div className="flex items-start justify-between gap-3">
++                <div><h2 className="font-semibold text-lg">{estimate.title}</h2><p className="text-sm text-muted-foreground">{estimate.customerName}</p></div>
++                <span className={`rounded-full px-2.5 py-1 text-xs font-medium capitalize ${statusColors[estimate.status]}`}>{estimate.status}</span>
++              </div>
++              <div className="flex items-end justify-between"><div><p className="text-xs text-muted-foreground">Total</p><p className="text-2xl font-bold">{money.format(estimate.total)}</p></div><p className="text-xs text-muted-foreground">{estimate.validUntil ? `Valid until ${estimate.validUntil}` : "No expiration"}</p></div>
++              <div className="flex gap-2">
++                {estimate.status === "draft" && <Button size="sm" variant="outline" onClick={() => changeStatus(estimate.id, "sent")}><Send className="h-4 w-4 mr-2" />Mark Sent</Button>}
++                {estimate.status === "sent" && <Button size="sm" onClick={() => changeStatus(estimate.id, "approved")}><CheckCircle2 className="h-4 w-4 mr-2" />Approve</Button>}
++                {estimate.status === "sent" && <Button size="sm" variant="outline" onClick={() => changeStatus(estimate.id, "rejected")}>Reject</Button>}
++              </div>
++            </CardContent>
++          </Card>
++        ))}
++      </div>
++    </div>
++  );
++}
+diff --git a/artifacts/righttemp-os/src/pages/job-detail.tsx b/artifacts/righttemp-os/src/pages/job-detail.tsx
+index de89f91..93f62bd 100644
+--- a/artifacts/righttemp-os/src/pages/job-detail.tsx
++++ b/artifacts/righttemp-os/src/pages/job-detail.tsx
+@@ -1,4 +1,4 @@
+-import { CalendarDays, ChevronLeft, Clock3, UserRound } from "lucide-react";
++import { CalendarDays, ChevronLeft, Clock3, FileText, UserRound } from "lucide-react";
+ import { useLocation, useParams } from "wouter";
+ import { Button } from "@/components/ui/button";
+ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+@@ -22,7 +22,8 @@ export default function JobDetailPage() {
+ 
+   return (
+     <div className="p-6 md:p-8 max-w-4xl mx-auto space-y-6">
+-      <div className="flex items-center gap-4">
++      <div className="flex items-center justify-between gap-4">
++        <div className="flex items-center gap-4">
+         <Button
+           variant="ghost"
+           size="icon"
+@@ -35,6 +36,10 @@ export default function JobDetailPage() {
+           <h1 className="text-3xl font-bold">{job.title}</h1>
+           <p className="text-muted-foreground mt-1">Job #{job.id}</p>
+         </div>
++        </div>
++        <Button variant="outline" onClick={() => setLocation(`/estimates?customerId=${job.customerId}`)}>
++          <FileText className="h-4 w-4 mr-2" /> Create Estimate
++        </Button>
+       </div>
+ 
+       <div className="grid gap-6 md:grid-cols-3">
+-- 
+2.51.1
+
