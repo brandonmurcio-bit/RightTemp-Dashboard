@@ -4,6 +4,7 @@ import pinoHttp from "pino-http";
 import router from "./routes";
 import { logger } from "./lib/logger";
 import { handleMcp } from "./mcp";
+import oauth from "./oauth";
 
 const app: Express = express();
 
@@ -29,6 +30,7 @@ app.use(
 app.use(cors());
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
+app.use(oauth);
 
 app.post("/mcp", (req, res, next) => {
   void handleMcp(req, res).catch(next);

@@ -1,0 +1,111 @@
+import { createHash, createHmac, randomBytes, timingSafeEqual } from "node:crypto";
+import { Router, type IRouter, type Request } from "express";
+
+type CodeRecord = {
+  clientId: string;
+  redirectUri: string;
+  challenge: string;
+  resource: string;
+  expiresAt: number;
+};
+
+const codes = new Map<string, CodeRecord>();
+const oauth: IRouter = Router();
+
+function baseUrl(req: Request) {
+  const configured = process.env["RIGHTTEMP_MCP_BASE_URL"]?.replace(/\/$/, "");
+  return configured || `${req.protocol}://${req.get("host")}`;
+}
+
+function secret() {
+  const value = process.env["RIGHTTEMP_MCP_TOKEN"];
+  if (!value) throw new Error("RIGHTTEMP_MCP_TOKEN is required");
+  return value;
+}
+
+function passwordMatches(candidate: string) {
+  const expected = process.env["RIGHTTEMP_MCP_PASSWORD"] ?? "";
+  const a = Buffer.from(candidate); const b = Buffer.from(expected);
+  return expected.length >= 16 && a.length === b.length && timingSafeEqual(a, b);
+}
+
+function allowedRedirect(value: string) {
+  try {
+    const url = new URL(value);
+    return url.protocol === "https:" && ["chatgpt.com", "openai.com"].some((host) => url.hostname === host || url.hostname.endsWith(`.${host}`));
+  } catch { return false; }
+}
+
+function escape(value: string) {
+  return value.replace(/[&<>"']/g, (char) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[char]!);
+}
+
+function signToken(resource: string) {
+  const payload = Buffer.from(JSON.stringify({ aud: resource, scope: "righttemp", exp: Math.floor(Date.now() / 1000) + 3600 })).toString("base64url");
+  const signature = createHmac("sha256", secret()).update(payload).digest("base64url");
+  return `${payload}.${signature}`;
+}
+
+export function verifyAccessToken(token: string | undefined, expectedResource: string): boolean {
+  if (!token) return false;
+  const [payload, signature] = token.split(".");
+  if (!payload || !signature) return false;
+  const expected = createHmac("sha256", secret()).update(payload).digest();
+  let supplied: Buffer;
+  try { supplied = Buffer.from(signature, "base64url"); } catch { return false; }
+  if (supplied.length !== expected.length || !timingSafeEqual(supplied, expected)) return false;
+  try {
+    const claims = JSON.parse(Buffer.from(payload, "base64url").toString()) as { aud?: string; exp?: number; scope?: string };
+    return claims.aud === expectedResource && claims.scope === "righttemp" && Number(claims.exp) > Date.now() / 1000;
+  } catch { return false; }
+}
+
+oauth.get("/.well-known/oauth-protected-resource", (req, res) => {
+  const base = baseUrl(req);
+  res.json({ resource: `${base}/mcp`, authorization_servers: [base], scopes_supported: ["righttemp"] });
+});
+
+oauth.get("/.well-known/oauth-authorization-server", (req, res) => {
+  const base = baseUrl(req);
+  res.json({
+    issuer: base,
+    authorization_endpoint: `${base}/oauth/authorize`,
+    token_endpoint: `${base}/oauth/token`,
+    response_types_supported: ["code"],
+    grant_types_supported: ["authorization_code"],
+    code_challenge_methods_supported: ["S256"],
+    token_endpoint_auth_methods_supported: ["none"],
+    scopes_supported: ["righttemp"],
+  });
+});
+
+oauth.get("/oauth/authorize", (req, res) => {
+  const values = ["client_id", "redirect_uri", "state", "code_challenge", "code_challenge_method", "resource", "scope"]
+    .map((name) => `<input type="hidden" name="${name}" value="${escape(String(req.query[name] ?? ""))}">`).join("");
+  res.type("html").send(`<!doctype html><html><meta name="viewport" content="width=device-width"><title>RightTemp Sign In</title><style>body{font-family:system-ui;background:#0b1118;color:#fff;display:grid;place-items:center;min-height:90vh}form{width:min(88vw,380px);padding:28px;background:#151d27;border-radius:18px}input,button{box-sizing:border-box;width:100%;padding:14px;margin-top:14px;border-radius:10px;border:1px solid #344150;font-size:16px}button{background:#1683ff;color:#fff;font-weight:700}</style><form method="post"><h1>RightTemp OS</h1><p>Authorize ChatGPT to access your private business workspace.</p>${values}<input name="password" type="password" autocomplete="current-password" placeholder="Owner password" required><button>Connect ChatGPT</button></form></html>`);
+});
+
+oauth.post("/oauth/authorize", (req, res) => {
+  const { client_id, redirect_uri, state, code_challenge, code_challenge_method, resource, password } = req.body as Record<string, string>;
+  if (!passwordMatches(password) || !allowedRedirect(redirect_uri) || code_challenge_method !== "S256" || !code_challenge) {
+    res.status(400).send("Authorization failed.");
+    return;
+  }
+  const code = randomBytes(32).toString("base64url");
+  codes.set(code, { clientId: client_id, redirectUri: redirect_uri, challenge: code_challenge, resource: resource || `${baseUrl(req)}/mcp`, expiresAt: Date.now() + 5 * 60_000 });
+  const callback = new URL(redirect_uri); callback.searchParams.set("code", code); if (state) callback.searchParams.set("state", state);
+  res.redirect(callback.toString());
+});
+
+oauth.post("/oauth/token", (req, res) => {
+  const { code, client_id, redirect_uri, code_verifier, grant_type } = req.body as Record<string, string>;
+  const record = codes.get(code); codes.delete(code);
+  const challenge = code_verifier ? createHash("sha256").update(code_verifier).digest("base64url") : "";
+  if (grant_type !== "authorization_code" || !record || record.expiresAt < Date.now() || record.clientId !== client_id || record.redirectUri !== redirect_uri || challenge !== record.challenge) {
+    res.status(400).json({ error: "invalid_grant" });
+    return;
+  }
+  res.json({ access_token: signToken(record.resource), token_type: "Bearer", expires_in: 3600, scope: "righttemp" });
+});
+
+export default oauth;

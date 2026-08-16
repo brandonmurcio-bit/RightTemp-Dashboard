@@ -15,4 +15,4 @@ pnpm --filter @workspace/api-server typecheck
 pnpm --filter @workspace/api-server build
 ```
 
-Deploy the existing API server over HTTPS, then add `https://YOUR_HOST/mcp` in ChatGPT Developer Mode. Configure the connector to send `Authorization: Bearer YOUR_RIGHTTEMP_MCP_TOKEN`. The initial version is private and intended only for the RightTemp owner.
+Deploy the existing API server over HTTPS, set `RIGHTTEMP_MCP_BASE_URL` to its public origin, then add `https://YOUR_HOST/mcp` in ChatGPT Developer Mode using OAuth. Sign in with `RIGHTTEMP_MCP_PASSWORD`. The connector uses authorization code + PKCE, one-time five-minute codes, and one-hour access tokens. It is private and intended only for the RightTemp owner.

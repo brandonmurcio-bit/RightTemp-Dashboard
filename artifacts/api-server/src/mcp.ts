@@ -3,6 +3,7 @@ import { StreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/
 import type { Request, Response } from "express";
 import { z } from "zod";
 import { confirmationRequired, jsonResult, normalizePhone, organizationId, rightTempDb } from "./lib/righttemp";
+import { verifyAccessToken } from "./oauth";
 
 const leadFields = "id, customer_id, name, email, phone, status, source, service_type, notes, follow_up_date, follow_up_time, estimate_price, equipment, scope_of_work, contacted_notes, qualified_notes, created_at";
 
@@ -162,13 +163,15 @@ function server() {
 }
 
 function authorized(req: Request): boolean {
-  const token = process.env["RIGHTTEMP_MCP_TOKEN"];
   const supplied = req.headers.authorization?.replace(/^Bearer\s+/i, "");
-  return Boolean(token && supplied && token.length === supplied.length && token === supplied);
+  const base = process.env["RIGHTTEMP_MCP_BASE_URL"]?.replace(/\/$/, "") || `${req.protocol}://${req.get("host")}`;
+  return verifyAccessToken(supplied, `${base}/mcp`);
 }
 
 export async function handleMcp(req: Request, res: Response): Promise<void> {
   if (!authorized(req)) {
+    const base = process.env["RIGHTTEMP_MCP_BASE_URL"]?.replace(/\/$/, "") || `${req.protocol}://${req.get("host")}`;
+    res.setHeader("WWW-Authenticate", `Bearer resource_metadata="${base}/.well-known/oauth-protected-resource"`);
     res.status(401).json({ error: "Unauthorized" });
     return;
   }
