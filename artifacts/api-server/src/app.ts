@@ -31,10 +31,14 @@ app.use(
 app.use(cors());
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
-app.use(oauth);
+app.use("/api", oauth);
 
-app.post("/mcp", (req, res, next) => {
+app.post("/api/mcp", (req, res, next) => {
   void handleMcp(req, res).catch(next);
+});
+
+app.get("/api", (_req, res) => {
+  res.json({ status: "ok", service: "righttemp-api" });
 });
 
 app.use("/api", router);

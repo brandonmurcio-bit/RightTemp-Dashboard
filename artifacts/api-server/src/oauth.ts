@@ -62,15 +62,15 @@ export function verifyAccessToken(token: string | undefined, expectedResource: s
 
 oauth.get("/.well-known/oauth-protected-resource", (req, res) => {
   const base = baseUrl(req);
-  res.json({ resource: `${base}/mcp`, authorization_servers: [base], scopes_supported: ["righttemp"] });
+  res.json({ resource: `${base}/api/mcp`, authorization_servers: [`${base}/api`], scopes_supported: ["righttemp"] });
 });
 
 oauth.get("/.well-known/oauth-authorization-server", (req, res) => {
   const base = baseUrl(req);
   res.json({
-    issuer: base,
-    authorization_endpoint: `${base}/oauth/authorize`,
-    token_endpoint: `${base}/oauth/token`,
+    issuer: `${base}/api`,
+    authorization_endpoint: `${base}/api/oauth/authorize`,
+    token_endpoint: `${base}/api/oauth/token`,
     response_types_supported: ["code"],
     grant_types_supported: ["authorization_code"],
     code_challenge_methods_supported: ["S256"],
@@ -92,7 +92,7 @@ oauth.post("/oauth/authorize", (req, res) => {
     return;
   }
   const code = randomBytes(32).toString("base64url");
-  codes.set(code, { clientId: client_id, redirectUri: redirect_uri, challenge: code_challenge, resource: resource || `${baseUrl(req)}/mcp`, expiresAt: Date.now() + 5 * 60_000 });
+  codes.set(code, { clientId: client_id, redirectUri: redirect_uri, challenge: code_challenge, resource: resource || `${baseUrl(req)}/api/mcp`, expiresAt: Date.now() + 5 * 60_000 });
   const callback = new URL(redirect_uri); callback.searchParams.set("code", code); if (state) callback.searchParams.set("state", state);
   res.redirect(callback.toString());
 });

@@ -165,13 +165,13 @@ function server() {
 function authorized(req: Request): boolean {
   const supplied = req.headers.authorization?.replace(/^Bearer\s+/i, "");
   const base = process.env["RIGHTTEMP_MCP_BASE_URL"]?.replace(/\/$/, "") || `${req.protocol}://${req.get("host")}`;
-  return verifyAccessToken(supplied, `${base}/mcp`);
+  return verifyAccessToken(supplied, `${base}/api/mcp`);
 }
 
 export async function handleMcp(req: Request, res: Response): Promise<void> {
   if (!authorized(req)) {
     const base = process.env["RIGHTTEMP_MCP_BASE_URL"]?.replace(/\/$/, "") || `${req.protocol}://${req.get("host")}`;
-    res.setHeader("WWW-Authenticate", `Bearer resource_metadata="${base}/.well-known/oauth-protected-resource"`);
+    res.setHeader("WWW-Authenticate", `Bearer resource_metadata="${base}/api/.well-known/oauth-protected-resource"`);
     res.status(401).json({ error: "Unauthorized" });
     return;
   }
