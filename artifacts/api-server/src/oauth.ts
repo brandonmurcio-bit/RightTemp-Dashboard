@@ -71,6 +71,7 @@ oauth.get("/.well-known/oauth-authorization-server", (req, res) => {
     issuer: `${base}/api`,
     authorization_endpoint: `${base}/api/oauth/authorize`,
     token_endpoint: `${base}/api/oauth/token`,
+    client_id_metadata_document_supported: true,
     response_types_supported: ["code"],
     grant_types_supported: ["authorization_code"],
     code_challenge_methods_supported: ["S256"],
@@ -87,7 +88,7 @@ oauth.get("/oauth/authorize", (req, res) => {
 
 oauth.post("/oauth/authorize", (req, res) => {
   const { client_id, redirect_uri, state, code_challenge, code_challenge_method, resource, password } = req.body as Record<string, string>;
-  if (!passwordMatches(password) || !allowedRedirect(redirect_uri) || code_challenge_method !== "S256" || !code_challenge) {
+  if (!passwordMatches(password) || !allowedRedirect(client_id) || !allowedRedirect(redirect_uri) || code_challenge_method !== "S256" || !code_challenge) {
     res.status(400).send("Authorization failed.");
     return;
   }
