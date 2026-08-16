@@ -27,7 +27,7 @@ export async function getDashboardStats(): Promise<DashboardStats> {
     await Promise.all([
       supabase
         .from("leads")
-        .select("id, name, phone, status, created_at, follow_up_date, customer_id")
+        .select("id, name, phone, status, created_at, follow_up_date, follow_up_time, customer_id")
         .eq("organization_id", organizationId),
       supabase
         .from("leads")
@@ -188,9 +188,23 @@ export async function getDashboardStats(): Promise<DashboardStats> {
     leadsByStatus,
     recentLeads: (recentLeadsResult.data ?? []) as DashboardLead[],
     followUpsDue: leads
-      .filter((row) => row.follow_up_date && row.follow_up_date <= todayDate && !["won", "lost"].includes(row.status))
-      .sort((a, b) => a.follow_up_date!.localeCompare(b.follow_up_date!))
-      .map((row) => ({ id: row.id, name: row.name, phone: row.phone ?? "", followUpDate: row.follow_up_date! })),
+      .filter((row) => {
+        if (!row.follow_up_date || ["won", "lost"].includes(row.status)) return false;
+        const dueAt = new Date(`${row.follow_up_date}T${row.follow_up_time || "09:00"}`);
+        return dueAt.getTime() <= Date.now();
+      })
+      .sort((a, b) => {
+        const aDue = `${a.follow_up_date}T${a.follow_up_time || "09:00"}`;
+        const bDue = `${b.follow_up_date}T${b.follow_up_time || "09:00"}`;
+        return aDue.localeCompare(bDue);
+      })
+      .map((row) => ({
+        id: row.id,
+        name: row.name,
+        phone: row.phone ?? "",
+        followUpDate: row.follow_up_date!,
+        followUpTime: row.follow_up_time?.slice(0, 5) ?? "09:00",
+      })),
     sentEstimates: estimates
       .filter((row) => row.status === "sent")
       .sort((a, b) => new Date(a.created_at).getTime() - new Date(b.created_at).getTime())

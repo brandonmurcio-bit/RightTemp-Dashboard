@@ -13,6 +13,7 @@ import {
   UserRoundCheck,
   FileText,
   Home,
+  Clock,
 } from "lucide-react";
 
 import {
@@ -90,6 +91,8 @@ const leadUpdateSchema = z.object({
   scopeOfWork: z.string().optional(),
   contactedNotes: z.string().optional(),
   qualifiedNotes: z.string().optional(),
+  followUpDate: z.string().optional(),
+  followUpTime: z.string().optional(),
 });
 
 type LeadUpdateValues = z.infer<typeof leadUpdateSchema>;
@@ -141,6 +144,8 @@ function getLeadFormValues(lead: Lead): LeadUpdateValues {
     scopeOfWork: lead.scopeOfWork ?? "",
     contactedNotes: lead.contactedNotes ?? "",
     qualifiedNotes: lead.qualifiedNotes ?? "",
+    followUpDate: lead.followUpDate ?? "",
+    followUpTime: lead.followUpTime?.slice(0, 5) ?? "09:00",
   };
 }
 export default function LeadDetailPage() {
@@ -172,6 +177,8 @@ export default function LeadDetailPage() {
       scopeOfWork: "",
       contactedNotes: "",
       qualifiedNotes: "",
+      followUpDate: "",
+      followUpTime: "09:00",
     },
   });
 
@@ -199,6 +206,8 @@ export default function LeadDetailPage() {
       ...values,
       email: values.email || undefined,
       serviceType: values.serviceType || undefined,
+      followUpDate: values.followUpDate || undefined,
+      followUpTime: values.followUpDate ? values.followUpTime || "09:00" : undefined,
     };
 
     updateLead.mutate(
@@ -365,6 +374,14 @@ export default function LeadDetailPage() {
   const isReplacementLead =
     lead.serviceType?.toLowerCase() === "system replacement" ||
     replacementQualification.length > 0;
+  const followUpDate = form.watch("followUpDate");
+  const followUpTime = form.watch("followUpTime");
+  const followUpAt = followUpDate
+    ? new Date(`${followUpDate}T${followUpTime || "09:00"}`)
+    : null;
+  const followUpIsOverdue = Boolean(
+    followUpAt && followUpAt.getTime() <= Date.now() && !["won", "lost"].includes(displayedStatus),
+  );
 
   return (
     <div className="max-w-4xl mx-auto p-4 md:p-8 space-y-6 animate-in fade-in duration-300">
@@ -516,6 +533,68 @@ export default function LeadDetailPage() {
                 </Button>
               )}
             </div>
+          </div>
+        </CardContent>
+      </Card>
+
+      <Card className={followUpIsOverdue ? "border-red-500/40" : ""}>
+        <CardHeader>
+          <div className="flex items-center gap-3">
+            <div className={`rounded-lg p-2 ${followUpIsOverdue ? "bg-red-500/10 text-red-500" : "bg-primary/10 text-primary"}`}>
+              <Clock className="h-5 w-5" />
+            </div>
+            <div>
+              <CardTitle>Follow-up Reminder</CardTitle>
+              <CardDescription>
+                {followUpIsOverdue
+                  ? "This follow-up is overdue and appears in Today’s Action Queue."
+                  : "Schedule when you need to contact this lead again."}
+              </CardDescription>
+            </div>
+          </div>
+        </CardHeader>
+        <CardContent className="space-y-4">
+          <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+            <div className="space-y-2">
+              <Label htmlFor="followUpDate">Follow-up Date</Label>
+              <Input id="followUpDate" type="date" {...form.register("followUpDate")} />
+            </div>
+            <div className="space-y-2">
+              <Label htmlFor="followUpTime">Follow-up Time</Label>
+              <Input id="followUpTime" type="time" disabled={!followUpDate} {...form.register("followUpTime")} />
+            </div>
+          </div>
+
+          <div className="flex flex-wrap gap-2">
+            {[1, 3, 7].map((days) => (
+              <Button
+                key={days}
+                type="button"
+                size="sm"
+                variant="outline"
+                onClick={() => {
+                  const date = new Date();
+                  date.setDate(date.getDate() + days);
+                  form.setValue("followUpDate", date.toLocaleDateString("en-CA"), { shouldDirty: true });
+                  if (!followUpTime) form.setValue("followUpTime", "09:00", { shouldDirty: true });
+                }}
+              >
+                {days === 1 ? "Tomorrow" : `${days} Days`}
+              </Button>
+            ))}
+            {followUpDate && (
+              <Button
+                type="button"
+                size="sm"
+                variant="ghost"
+                onClick={() => {
+                  form.setValue("followUpDate", "", { shouldDirty: true });
+                  form.setValue("followUpTime", "09:00", { shouldDirty: true });
+                }}
+              >
+                Clear Reminder
+              </Button>
+            )}
           </div>
         </CardContent>
       </Card>

@@ -21,6 +21,8 @@ export function mapLeadRowToLead(row: LeadRow): Lead {
     attributionSource: row.attribution_source,
     attributionCampaign: row.attribution_campaign,
     landingPage: row.landing_page,
+    followUpDate: row.follow_up_date,
+    followUpTime: row.follow_up_time,
     createdAt: row.created_at,
 
     estimatePrice: row.estimate_price,
@@ -54,5 +56,7 @@ export function mapLeadInputToInsert(
     scope_of_work: input.scopeOfWork ?? null,
     contacted_notes: input.contactedNotes ?? null,
     qualified_notes: input.qualifiedNotes ?? null,
+    follow_up_date: input.followUpDate || null,
+    follow_up_time: input.followUpDate ? input.followUpTime || "09:00" : null,
   };
 }

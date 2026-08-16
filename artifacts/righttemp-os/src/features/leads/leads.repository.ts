@@ -19,6 +19,8 @@ const leadSelect = `
   attribution_source,
   attribution_campaign,
   landing_page,
+  follow_up_date,
+  follow_up_time,
   estimate_price,
   equipment,
   scope_of_work,

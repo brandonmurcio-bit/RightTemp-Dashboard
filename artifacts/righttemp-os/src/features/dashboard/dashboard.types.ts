@@ -11,6 +11,7 @@ export interface DashboardFollowUp {
   name: string;
   phone: string;
   followUpDate: string;
+  followUpTime: string;
 }
 
 export interface DashboardEstimateAction {

@@ -19,6 +19,8 @@ export interface Lead {
   attributionSource: string | null;
   attributionCampaign: string | null;
   landingPage: string | null;
+  followUpDate: string | null;
+  followUpTime: string | null;
   createdAt: string;
 
   estimatePrice: number | null;
@@ -41,6 +43,8 @@ export interface LeadInput {
   scopeOfWork?: string;
   contactedNotes?: string;
   qualifiedNotes?: string;
+  followUpDate?: string;
+  followUpTime?: string;
 }
 
 export interface LeadRow {
@@ -67,6 +71,8 @@ export interface LeadRow {
   attribution_source: string | null;
   attribution_campaign: string | null;
   landing_page: string | null;
+  follow_up_date: string | null;
+  follow_up_time: string | null;
   created_at: string;
   estimate_price: number | null;
   equipment: string | null;
@@ -89,4 +95,6 @@ export interface LeadInsert {
   scope_of_work: string | null;
   contacted_notes: string | null;
   qualified_notes: string | null;
+  follow_up_date: string | null;
+  follow_up_time: string | null;
 }
