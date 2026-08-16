@@ -1,4 +1,4 @@
-import React, { useEffect, useRef } from "react";
+import React, { useEffect, useRef, useState } from "react";
 import { useLocation, useParams } from "wouter";
 import { useQueryClient } from "@tanstack/react-query";
 import { useForm } from "react-hook-form";
@@ -14,6 +14,8 @@ import {
   FileText,
   Home,
   Clock,
+  PhoneCall,
+  MapPin,
 } from "lucide-react";
 
 import {
@@ -28,6 +30,8 @@ import { customerQueryKeys } from "@/features/customers/customers.hooks";
 import { estimateQueryKeys } from "@/features/estimates/estimates.hooks";
 import type { Lead, LeadInput, LeadStatus } from "@/features/leads/leads.types";
 import { useToast } from "@/hooks/use-toast";
+import { useAppointments, useCreateAppointment, useUpdateAppointmentStatus } from "@/features/appointments/appointments.hooks";
+import type { AppointmentStatus, AppointmentType } from "@/features/appointments/appointments.types";
 
 import { Button } from "@/components/ui/button";
 import {
@@ -161,6 +165,14 @@ export default function LeadDetailPage() {
   const updateLead = useUpdateLead();
   const deleteLead = useDeleteLead();
   const convertLead = useConvertLeadToCustomer();
+  const { data: appointments = [] } = useAppointments();
+  const createAppointment = useCreateAppointment();
+  const updateAppointmentStatus = useUpdateAppointmentStatus();
+  const [appointmentType, setAppointmentType] = useState<AppointmentType>("phone_call");
+  const [appointmentStart, setAppointmentStart] = useState("");
+  const [appointmentDuration, setAppointmentDuration] = useState("60");
+  const [appointmentAddress, setAppointmentAddress] = useState("");
+  const [appointmentNotes, setAppointmentNotes] = useState("");
 
   const form = useForm<LeadUpdateValues>({
     resolver: zodResolver(leadUpdateSchema),
@@ -341,6 +353,38 @@ export default function LeadDetailPage() {
     });
   };
 
+  const handleBuildFullEstimate = () => {
+    const openEstimateBuilder = () => setLocation(`/estimates?leadId=${lead?.id ?? id}`);
+
+    if (!form.formState.isDirty) {
+      openEstimateBuilder();
+      return;
+    }
+
+    void form.handleSubmit((values) => {
+      const data: LeadInput = {
+        ...values,
+        email: values.email || undefined,
+        serviceType: values.serviceType || undefined,
+        followUpDate: values.followUpDate || undefined,
+        followUpTime: values.followUpDate ? values.followUpTime || "09:00" : undefined,
+      };
+
+      updateLead.mutate({ id, data }, {
+        onSuccess: (updatedLead) => {
+          updateCachedLead(updatedLead);
+          queryClient.invalidateQueries({ queryKey: dashboardQueryKeys.stats });
+          openEstimateBuilder();
+        },
+        onError: (error) => toast({
+          title: "Save the proposal first",
+          description: error instanceof Error ? error.message : "Unable to save these estimate details.",
+          variant: "destructive",
+        }),
+      });
+    })();
+  };
+
   if (!id) {
     return <div className="p-8 text-destructive">Invalid lead ID.</div>;
   }
@@ -382,6 +426,32 @@ export default function LeadDetailPage() {
   const followUpIsOverdue = Boolean(
     followUpAt && followUpAt.getTime() <= Date.now() && !["won", "lost"].includes(displayedStatus),
   );
+  const leadAppointments = appointments.filter((appointment) => appointment.leadId === lead.id);
+
+  const scheduleAppointment = () => {
+    if (!appointmentStart) {
+      toast({ title: "Choose a date and time", variant: "destructive" });
+      return;
+    }
+    const start = new Date(appointmentStart);
+    const end = new Date(start.getTime() + Number(appointmentDuration) * 60_000);
+    createAppointment.mutate({
+      leadId: lead.id,
+      appointmentType,
+      startsAt: start.toISOString(),
+      endsAt: end.toISOString(),
+      address: appointmentType === "in_home_estimate" ? appointmentAddress : undefined,
+      notes: appointmentNotes,
+    }, {
+      onSuccess: () => {
+        setAppointmentStart("");
+        setAppointmentAddress("");
+        setAppointmentNotes("");
+        toast({ title: "Appointment scheduled", description: "It is now on the dashboard and calendar." });
+      },
+      onError: (error) => toast({ title: "Unable to schedule", description: error instanceof Error ? error.message : "Try again.", variant: "destructive" }),
+    });
+  };
 
   return (
     <div className="max-w-4xl mx-auto p-4 md:p-8 space-y-6 animate-in fade-in duration-300">
@@ -599,6 +669,82 @@ export default function LeadDetailPage() {
         </CardContent>
       </Card>
 
+      {['contacted', 'qualified'].includes(displayedStatus) && (
+        <Card>
+          <CardHeader>
+            <CardTitle className="flex items-center gap-2"><Calendar className="h-5 w-5 text-primary" />Schedule Sales Appointment</CardTitle>
+            <CardDescription>Book a phone call or in-home estimate without creating an installation job.</CardDescription>
+          </CardHeader>
+          <CardContent className="space-y-5">
+            <div className="grid gap-4 sm:grid-cols-2">
+              <div className="space-y-2">
+                <Label>Appointment Type</Label>
+                <Select value={appointmentType} onValueChange={(value) => setAppointmentType(value as AppointmentType)}>
+                  <SelectTrigger><SelectValue /></SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="phone_call">Phone Call</SelectItem>
+                    <SelectItem value="in_home_estimate">In-home Estimate</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+              <div className="space-y-2">
+                <Label>Date & Time</Label>
+                <Input type="datetime-local" value={appointmentStart} onChange={(event) => setAppointmentStart(event.target.value)} />
+              </div>
+              <div className="space-y-2">
+                <Label>Duration</Label>
+                <Select value={appointmentDuration} onValueChange={setAppointmentDuration}>
+                  <SelectTrigger><SelectValue /></SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="30">30 minutes</SelectItem>
+                    <SelectItem value="60">1 hour</SelectItem>
+                    <SelectItem value="90">1.5 hours</SelectItem>
+                    <SelectItem value="120">2 hours</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+              {appointmentType === "in_home_estimate" && (
+                <div className="space-y-2">
+                  <Label>Address</Label>
+                  <Input value={appointmentAddress} onChange={(event) => setAppointmentAddress(event.target.value)} placeholder="Customer address" />
+                </div>
+              )}
+            </div>
+            <div className="space-y-2">
+              <Label>Appointment Notes</Label>
+              <Textarea value={appointmentNotes} onChange={(event) => setAppointmentNotes(event.target.value)} placeholder="System concerns, decision makers, access instructions..." />
+            </div>
+            <Button type="button" onClick={scheduleAppointment} disabled={createAppointment.isPending}>
+              <Calendar className="mr-2 h-4 w-4" />{createAppointment.isPending ? "Scheduling..." : "Schedule Appointment"}
+            </Button>
+
+            {leadAppointments.length > 0 && (
+              <div className="space-y-3 border-t pt-5">
+                <p className="text-sm font-semibold">Scheduled for this lead</p>
+                {leadAppointments.map((appointment) => (
+                  <div key={appointment.id} className="rounded-xl border p-4">
+                    <div className="flex flex-wrap items-start justify-between gap-3">
+                      <div>
+                        <p className="font-semibold">{appointment.appointmentType === "phone_call" ? "Phone Call" : "In-home Estimate"}</p>
+                        <p className="mt-1 text-sm text-muted-foreground">{new Date(appointment.startsAt).toLocaleString([], { dateStyle: "medium", timeStyle: "short" })}</p>
+                        {appointment.address && <p className="mt-1 flex items-center gap-1 text-sm text-muted-foreground"><MapPin className="h-3.5 w-3.5" />{appointment.address}</p>}
+                      </div>
+                      <Select value={appointment.status} onValueChange={(status) => updateAppointmentStatus.mutate({ id: appointment.id, status: status as AppointmentStatus })}>
+                        <SelectTrigger className="w-36"><SelectValue /></SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="scheduled">Scheduled</SelectItem><SelectItem value="confirmed">Confirmed</SelectItem><SelectItem value="completed">Completed</SelectItem><SelectItem value="rescheduled">Rescheduled</SelectItem><SelectItem value="cancelled">Cancelled</SelectItem><SelectItem value="no_show">No-show</SelectItem>
+                        </SelectContent>
+                      </Select>
+                    </div>
+                    {appointment.appointmentType === "phone_call" && lead.phone && <Button className="mt-3" size="sm" variant="outline" asChild><a href={`tel:${lead.phone}`}><PhoneCall className="mr-2 h-4 w-4" />Call {lead.name}</a></Button>}
+                  </div>
+                ))}
+              </div>
+            )}
+          </CardContent>
+        </Card>
+      )}
+
       {isReplacementLead && (
         <Card className="overflow-hidden border-primary/30">
           <CardHeader className="bg-primary/5">
@@ -656,9 +802,10 @@ export default function LeadDetailPage() {
             <Button
               type="button"
               variant="outline"
-              onClick={() => setLocation(`/estimates?leadId=${lead.id}`)}
+              onClick={handleBuildFullEstimate}
+              disabled={updateLead.isPending}
             >
-              <FileText className="w-4 h-4 mr-2" /> Build Full Estimate
+              <FileText className="w-4 h-4 mr-2" /> {updateLead.isPending ? "Saving Details..." : "Build Full Estimate"}
             </Button>
             <div className="space-y-2">
               <Label>Estimate Price</Label>

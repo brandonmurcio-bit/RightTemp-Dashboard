@@ -3,6 +3,7 @@ import { PushNotifications } from "@/components/push-notifications";
 import { useDashboardStats } from "@/features/dashboard/dashboard.hooks";
 import { useLeads } from "@/features/leads/leads.hooks";
 import { getViewedLeadIds } from "@/features/leads/lead-views";
+import { useAppointments } from "@/features/appointments/appointments.hooks";
 import {
   Card,
   CardContent,
@@ -41,6 +42,7 @@ import {
 export default function DashboardPage() {
   const { data: stats, isLoading, isError } = useDashboardStats();
   const { data: leads = [] } = useLeads();
+  const { data: appointments = [] } = useAppointments();
 
   if (isLoading) {
     return (
@@ -80,6 +82,13 @@ export default function DashboardPage() {
   const unreadLeads = leads.filter(
     (lead) => lead.status === "new" && !viewedLeadIds.has(lead.id),
   );
+  const now = new Date();
+  const todaysAppointments = appointments
+    .filter((appointment) => {
+      const date = new Date(appointment.startsAt);
+      return date.toDateString() === now.toDateString() && !["cancelled", "rescheduled"].includes(appointment.status);
+    })
+    .sort((a, b) => new Date(a.startsAt).getTime() - new Date(b.startsAt).getTime());
 
   const money = new Intl.NumberFormat("en-US", {
     style: "currency",
@@ -316,7 +325,39 @@ export default function DashboardPage() {
         </div>
       </section>
 
-      {/* Today's Schedule */}
+      {/* Today's Sales Schedule */}
+      <Card>
+        <CardHeader className="flex flex-row items-center justify-between gap-3">
+          <div>
+            <CardTitle className="flex items-center gap-2"><PhoneForwarded className="h-5 w-5 text-blue-400" />Today’s Sales Schedule</CardTitle>
+            <CardDescription>{todaysAppointments.length} call{todaysAppointments.length === 1 ? "" : "s"} or estimate{todaysAppointments.length === 1 ? "" : "s"} today</CardDescription>
+          </div>
+          <Link href="/schedule" className="shrink-0 rounded-lg border border-blue-500/30 bg-blue-500/10 px-3 py-2 text-xs font-bold text-blue-300 hover:bg-blue-500/20">Calendar <ArrowUpRight className="inline h-3.5 w-3.5" /></Link>
+        </CardHeader>
+        <CardContent>
+          {todaysAppointments.length === 0 ? (
+            <p className="rounded-xl border border-dashed p-6 text-center text-sm text-muted-foreground">No sales appointments scheduled today.</p>
+          ) : (
+            <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-3">
+              {todaysAppointments.map((appointment) => (
+                <Link key={appointment.id} href={`/leads/${appointment.leadId}`} className="rounded-xl border border-blue-500/20 bg-blue-500/[0.05] p-4 transition-colors hover:bg-blue-500/[0.10]">
+                  <div className="flex items-start justify-between gap-2">
+                    <div>
+                      <p className="text-lg font-black">{new Date(appointment.startsAt).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" })}</p>
+                      <p className="mt-1 font-semibold">{appointment.leadName}</p>
+                      <p className="mt-1 text-xs text-muted-foreground">{appointment.appointmentType === "phone_call" ? "Phone Call" : "In-home Estimate"}</p>
+                    </div>
+                    <span className="rounded-full bg-blue-500/10 px-2 py-1 text-[10px] capitalize text-blue-300">{appointment.status.replace("_", " ")}</span>
+                  </div>
+                  {appointment.leadPhone && <p className="mt-3 text-xs font-mono text-muted-foreground">{appointment.leadPhone}</p>}
+                </Link>
+              ))}
+            </div>
+          )}
+        </CardContent>
+      </Card>
+
+      {/* Today's Job Schedule */}
       <section>
         <Card className="border-violet-500/20 bg-card/80 overflow-hidden">
           <CardHeader className="flex flex-row items-start justify-between gap-4">

@@ -17,6 +17,7 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { useCustomers } from "@/features/customers/customers.hooks";
 import { useJobs } from "@/features/jobs/jobs.hooks";
+import { useAppointments } from "@/features/appointments/appointments.hooks";
 import type { JobStatus } from "@/features/jobs/jobs.types";
 import { cn } from "@/lib/utils";
 
@@ -36,6 +37,7 @@ const timeFormatter = new Intl.DateTimeFormat(undefined, {
 export default function SchedulePage() {
   const { data: jobs, isLoading, isError } = useJobs();
   const { data: customers } = useCustomers();
+  const { data: appointments = [], isLoading: appointmentsLoading, isError: appointmentsError } = useAppointments();
   const [selectedDate, setSelectedDate] = useState<Date>(startOfDay(new Date()));
   const [visibleMonth, setVisibleMonth] = useState<Date>(startOfDay(new Date()));
 
@@ -47,6 +49,9 @@ export default function SchedulePage() {
     () => scheduledJobs.map((job) => startOfDay(new Date(job.scheduledStart!))),
     [scheduledJobs],
   );
+  const activeAppointments = useMemo(() => appointments.filter((appointment) => !["cancelled", "rescheduled"].includes(appointment.status)), [appointments]);
+  const selectedAppointments = useMemo(() => activeAppointments.filter((appointment) => isSameDay(new Date(appointment.startsAt), selectedDate)).sort((a, b) => new Date(a.startsAt).getTime() - new Date(b.startsAt).getTime()), [activeAppointments, selectedDate]);
+  const datesWithAppointments = useMemo(() => activeAppointments.map((appointment) => startOfDay(new Date(appointment.startsAt))), [activeAppointments]);
   const selectedJobs = useMemo(
     () =>
       scheduledJobs
@@ -82,7 +87,7 @@ export default function SchedulePage() {
       <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
         <div>
           <h1 className="text-3xl font-bold tracking-tight">Schedule</h1>
-          <p className="mt-2 text-muted-foreground">Tap a date to view installs and service jobs.</p>
+          <p className="mt-2 text-muted-foreground">Tap a date to view sales appointments, installs, and service jobs.</p>
         </div>
         <Button asChild>
           <Link href={`/jobs/new?date=${format(selectedDate, "yyyy-MM-dd")}`}>
@@ -116,6 +121,7 @@ export default function SchedulePage() {
                 const selected = isSameDay(day, selectedDate);
                 const today = isSameDay(day, new Date());
                 const hasJobs = datesWithJobs.some((jobDate) => isSameDay(jobDate, day));
+                const hasAppointments = datesWithAppointments.some((appointmentDate) => isSameDay(appointmentDate, day));
                 return (
                   <button
                     key={day.toISOString()}
@@ -143,6 +149,7 @@ export default function SchedulePage() {
                         )}
                       />
                     )}
+                    {hasAppointments && <span className={cn("absolute bottom-1 right-1 h-1.5 w-1.5 rounded-full", selected ? "bg-primary-foreground" : "bg-blue-400")} />}
                   </button>
                 );
               })}
@@ -161,12 +168,13 @@ export default function SchedulePage() {
             <h2 className="mt-1 text-2xl font-bold">{format(selectedDate, "EEEE, MMMM d")}</h2>
             <p className="text-sm text-muted-foreground">
               {selectedJobs.length} {selectedJobs.length === 1 ? "job" : "jobs"} scheduled
+              {selectedAppointments.length > 0 ? ` · ${selectedAppointments.length} sales appointment${selectedAppointments.length === 1 ? "" : "s"}` : ""}
             </p>
           </div>
 
-          {isLoading && <Card><CardContent className="py-12 text-center text-muted-foreground">Loading schedule...</CardContent></Card>}
-          {isError && <Card><CardContent className="py-12 text-center text-destructive">Unable to load the schedule.</CardContent></Card>}
-          {!isLoading && !isError && selectedJobs.length === 0 && (
+          {(isLoading || appointmentsLoading) && <Card><CardContent className="py-12 text-center text-muted-foreground">Loading schedule...</CardContent></Card>}
+          {(isError || appointmentsError) && <Card><CardContent className="py-12 text-center text-destructive">Unable to load the schedule.</CardContent></Card>}
+          {!isLoading && !appointmentsLoading && !isError && !appointmentsError && selectedJobs.length === 0 && selectedAppointments.length === 0 && (
             <Card>
               <CardContent className="py-12 text-center">
                 <CalendarDays className="mx-auto mb-3 h-10 w-10 text-muted-foreground" />
@@ -178,6 +186,23 @@ export default function SchedulePage() {
               </CardContent>
             </Card>
           )}
+
+          {selectedAppointments.map((appointment) => (
+            <Link key={appointment.id} href={`/leads/${appointment.leadId}`}>
+              <Card className="cursor-pointer border-blue-500/25 bg-blue-500/[0.04] transition-colors hover:border-blue-500/50">
+                <CardContent className="p-5">
+                  <div className="flex items-start justify-between gap-3">
+                    <div>
+                      <p className="text-lg font-semibold">{appointment.appointmentType === "phone_call" ? "Phone Call" : "In-home Estimate"}</p>
+                      <p className="text-sm text-muted-foreground">{appointment.leadName}</p>
+                      <p className="mt-3 flex items-center gap-2 text-sm"><Clock3 className="h-4 w-4 text-blue-400" />{timeFormatter.format(new Date(appointment.startsAt))} – {timeFormatter.format(new Date(appointment.endsAt))}</p>
+                    </div>
+                    <span className="rounded-full border border-blue-500/30 bg-blue-500/10 px-2.5 py-1 text-xs capitalize text-blue-400">{appointment.status.replace("_", " ")}</span>
+                  </div>
+                </CardContent>
+              </Card>
+            </Link>
+          ))}
 
           {selectedJobs.map((job) => (
             <Link key={job.id} href={`/jobs/${job.id}`}>
