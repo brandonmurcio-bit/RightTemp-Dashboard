@@ -1,0 +1,56 @@
+From 55c3f482a58d19471a9d841d654fae5727d97b1a Mon Sep 17 00:00:00 2001
+From: OpenAI Codex <codex@openai.com>
+Date: Sun, 16 Aug 2026 19:57:14 +0000
+Subject: [PATCH] fix: serve app and connector together
+
+---
+ .replit                         |  2 ++
+ artifacts/api-server/src/app.ts | 16 ++++++++++++++++
+ 2 files changed, 18 insertions(+)
+
+diff --git a/.replit b/.replit
+index fb21a9b..68083cc 100644
+--- a/.replit
++++ b/.replit
+@@ -3,6 +3,8 @@ modules = ["nodejs-24", "postgresql-16"]
+ [deployment]
+ router = "application"
+ deploymentTarget = "autoscale"
++build = ["sh", "-c", "pnpm --filter @workspace/righttemp-os build && pnpm --filter @workspace/api-server build"]
++run = ["sh", "-c", "pnpm --filter @workspace/api-server start"]
+ 
+ [deployment.postBuild]
+ args = ["pnpm", "store", "prune"]
+diff --git a/artifacts/api-server/src/app.ts b/artifacts/api-server/src/app.ts
+index 0e5fe5c..282752a 100644
+--- a/artifacts/api-server/src/app.ts
++++ b/artifacts/api-server/src/app.ts
+@@ -1,4 +1,5 @@
+ import express, { type Express } from "express";
++import path from "node:path";
+ import cors from "cors";
+ import pinoHttp from "pino-http";
+ import router from "./routes";
+@@ -38,4 +39,19 @@ app.post("/mcp", (req, res, next) => {
+ 
+ app.use("/api", router);
+ 
++const webDirectory = path.resolve(
++  process.cwd(),
++  "artifacts/righttemp-os/dist/public",
++);
++
++app.use(express.static(webDirectory));
++app.use((req, res, next) => {
++  if (req.method === "GET" && req.accepts("html")) {
++    res.sendFile(path.join(webDirectory, "index.html"));
++    return;
++  }
++
++  next();
++});
++
+ export default app;
+-- 
+2.51.1
+
