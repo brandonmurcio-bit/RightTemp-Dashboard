@@ -64,6 +64,7 @@ import {
   useUploadCustomerDocument,
 } from "@/features/customer-documents/customer-documents.hooks";
 import { openCustomerDocument } from "@/features/customer-documents/customer-documents.repository";
+import { ContractVault } from "@/components/contract-vault";
 import { useJobs } from "@/features/jobs/jobs.hooks";
 
 const customerUpdateSchema = z.object({
@@ -477,6 +478,7 @@ export default function CustomerDetailPage() {
                   </div>
                 ))}
               </div>
+              <ContractVault customerId={id} />
             </CardContent>
           </Card>
 

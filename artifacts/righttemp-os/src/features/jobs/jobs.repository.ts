@@ -54,6 +54,22 @@ export async function createJob(input: JobInput): Promise<Job> {
     .select(jobSelect)
     .single();
   if (error) throw new Error(`Unable to create job: ${error.message}`);
+  if (input.leadId) {
+    const { data: linkedEstimates } = await supabase
+      .from("estimates")
+      .select("id")
+      .eq("organization_id", organizationId)
+      .eq("lead_id", input.leadId);
+    const estimateIds = (linkedEstimates ?? []).map((estimate) => estimate.id);
+    if (estimateIds.length) {
+      const { error: contractError } = await supabase
+        .from("contract_documents")
+        .update({ customer_id: input.customerId, job_id: data.id })
+        .eq("organization_id", organizationId)
+        .in("estimate_id", estimateIds);
+      if (contractError) throw new Error(`Job created, but contracts could not be linked: ${contractError.message}`);
+    }
+  }
   return mapJobRowToJob(data as JobRow);
 }
 

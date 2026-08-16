@@ -135,5 +135,10 @@ export async function acceptEstimate(
   if (error) throw new Error(`Unable to accept estimate: ${error.message}`);
   const result = Array.isArray(data) ? data[0] : data;
   if (!result?.customer_id) throw new Error("Estimate acceptance returned no customer.");
+  const { error: contractError } = await supabase
+    .from("contract_documents")
+    .update({ customer_id: result.customer_id })
+    .eq("estimate_id", estimate.id);
+  if (contractError) throw new Error(`Estimate accepted, but its contracts could not be linked: ${contractError.message}`);
   return { customerId: result.customer_id as string, leadId: (result.lead_id as string | null) ?? null };
 }

@@ -7,6 +7,7 @@ import { JobWalkthroughCard } from "@/components/job-walkthrough-card";
 import { EditJobDialog } from "@/components/edit-job-dialog";
 import { JobProfitabilityCard } from "@/components/job-profitability-card";
 import { JobInvoiceCard } from "@/components/job-invoice-card";
+import { ContractVault } from "@/components/contract-vault";
 
 const dateFormatter = new Intl.DateTimeFormat(undefined, {
   dateStyle: "full",
@@ -99,6 +100,7 @@ export default function JobDetailPage() {
       )}
 
       <JobWalkthroughCard jobId={job.id} />
+      <Card><CardHeader><CardTitle>Contracts</CardTitle></CardHeader><CardContent><ContractVault jobId={job.id} allowSign /></CardContent></Card>
       <JobInvoiceCard jobId={job.id} />
       <JobProfitabilityCard jobId={job.id} />
     </div>

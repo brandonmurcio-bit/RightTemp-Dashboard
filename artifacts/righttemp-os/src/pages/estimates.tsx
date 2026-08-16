@@ -24,6 +24,7 @@ import type { Estimate, EstimateInput, EstimateStatus } from "@/features/estimat
 import { useToast } from "@/hooks/use-toast";
 import { EstimateWalkthroughPhotos } from "@/components/estimate-walkthrough-photos";
 import { EstimateProposalDialog } from "@/components/estimate-proposal-dialog";
+import { ContractVault } from "@/components/contract-vault";
 
 const money = new Intl.NumberFormat("en-US", { style: "currency", currency: "USD" });
 const statusColors: Record<EstimateStatus, string> = {
@@ -246,6 +247,7 @@ export default function EstimatesPage() {
                 </div>
               )}
               <EstimateWalkthroughPhotos estimateId={estimate.id} />
+              <ContractVault estimateId={estimate.id} allowUpload />
             </CardContent>
           </Card>
         ))}
