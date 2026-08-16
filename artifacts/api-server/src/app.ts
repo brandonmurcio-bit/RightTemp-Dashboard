@@ -1,4 +1,5 @@
 import express, { type Express } from "express";
+import path from "node:path";
 import cors from "cors";
 import pinoHttp from "pino-http";
 import router from "./routes";
@@ -37,5 +38,20 @@ app.post("/mcp", (req, res, next) => {
 });
 
 app.use("/api", router);
+
+const webDirectory = path.resolve(
+  process.cwd(),
+  "artifacts/righttemp-os/dist/public",
+);
+
+app.use(express.static(webDirectory));
+app.use((req, res, next) => {
+  if (req.method === "GET" && req.accepts("html")) {
+    res.sendFile(path.join(webDirectory, "index.html"));
+    return;
+  }
+
+  next();
+});
 
 export default app;
