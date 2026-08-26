@@ -15,6 +15,6 @@ Never put these values in `wrangler.jsonc` or commit `.dev.vars`.
 
 ## Deploy
 
-Run `pnpm --filter @workspace/righttemp-worker deploy` or connect this repository in the Cloudflare Workers dashboard. The connector endpoint is `/mcp`, health check is `/healthz`, and OAuth discovery is `/.well-known/oauth-authorization-server`.
+Run `pnpm --filter @workspace/righttemp-worker run deploy` or connect this repository in the Cloudflare Workers dashboard. The connector endpoint is `/mcp`, health check is `/healthz`, and OAuth discovery is `/.well-known/oauth-authorization-server`.
 
 Keep the existing Replit connector installed until this Worker passes OAuth sign-in and a read-only tool test in ChatGPT.
