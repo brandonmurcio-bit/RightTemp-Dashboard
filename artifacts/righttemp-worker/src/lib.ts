@@ -7,9 +7,14 @@ export interface Env {
   RIGHTTEMP_MCP_TOKEN: string;
   RIGHTTEMP_MCP_PASSWORD: string;
   RIGHTTEMP_MCP_BASE_URL?: string;
+  REFRESH_TOKEN_STORE: DurableObjectNamespace;
 }
 
-export function required(env: Env, name: keyof Env): string {
+type StringEnvKey = {
+  [Key in keyof Env]-?: Env[Key] extends string | undefined ? Key : never;
+}[keyof Env];
+
+export function required(env: Env, name: StringEnvKey): string {
   const value = env[name];
   if (!value) throw new Error(`${name} is required`);
   return value;

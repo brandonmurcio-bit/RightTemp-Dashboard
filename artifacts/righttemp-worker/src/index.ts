@@ -1,6 +1,7 @@
 import { createMcpHandler } from "agents/mcp/server";
 import type { Env } from "./lib";
 import { baseUrl, handleOAuth, verifyAccessToken } from "./oauth";
+import { RefreshTokenStore } from "./refresh-token-store";
 import { createServer } from "./server";
 
 export default {
@@ -25,3 +26,5 @@ export default {
     }
   },
 } satisfies ExportedHandler<Env>;
+
+export { RefreshTokenStore };
