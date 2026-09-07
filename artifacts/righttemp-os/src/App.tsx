@@ -31,33 +31,38 @@ import SchedulePage from "@/pages/schedule";
 import InvoicesPage from "@/pages/invoices";
 import ServiceLandingPage from "@/pages/service-landing";
 import ReplacementLandingPage from "@/pages/replacement-landing";
+import SettingsPage from "@/pages/settings";
+import { SettingsProvider } from "@/features/settings/settings.context";
 const queryClient = new QueryClient();
 
 function AuthenticatedRouter() {
   return (
-    <Layout>
-      <Switch>
-        <Route path="/" component={DashboardPage} />
-        <Route path="/login" component={DashboardPage} />
+    <SettingsProvider>
+      <Layout>
+        <Switch>
+          <Route path="/" component={DashboardPage} />
+          <Route path="/login" component={DashboardPage} />
 
-        <Route path="/leads" component={LeadsPage} />
-        <Route path="/leads/:id" component={LeadDetailPage} />
+          <Route path="/leads" component={LeadsPage} />
+          <Route path="/leads/:id" component={LeadDetailPage} />
 
-        <Route path="/customers" component={CustomersPage} />
-        <Route path="/customers/:id" component={CustomerDetailPage} />
+          <Route path="/customers" component={CustomersPage} />
+          <Route path="/customers/:id" component={CustomerDetailPage} />
 
-        <Route path="/jobs" component={JobsPage} />
-        <Route path="/schedule" component={SchedulePage} />
-        <Route path="/jobs/new" component={NewJobPage} />
-        <Route path="/jobs/:id" component={JobDetailPage} />
+          <Route path="/jobs" component={JobsPage} />
+          <Route path="/schedule" component={SchedulePage} />
+          <Route path="/jobs/new" component={NewJobPage} />
+          <Route path="/jobs/:id" component={JobDetailPage} />
 
-        <Route path="/estimates" component={EstimatesPage} />
-        <Route path="/invoices" component={InvoicesPage} />
-        <Route path="/purchase-orders" component={PurchaseOrdersPage} />
+          <Route path="/estimates" component={EstimatesPage} />
+          <Route path="/invoices" component={InvoicesPage} />
+          <Route path="/purchase-orders" component={PurchaseOrdersPage} />
+          <Route path="/settings" component={SettingsPage} />
 
-        <Route component={NotFound} />
-      </Switch>
-    </Layout>
+          <Route component={NotFound} />
+        </Switch>
+      </Layout>
+    </SettingsProvider>
   );
 }
 

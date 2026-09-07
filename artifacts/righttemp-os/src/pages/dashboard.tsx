@@ -28,6 +28,8 @@ import {
   Zap,
 } from "lucide-react";
 import { Link } from "wouter";
+import { useSettings } from "@/features/settings/settings.context";
+import type { DashboardWidgetId } from "@/features/settings/settings.types";
 import {
   Bar,
   BarChart,
@@ -43,6 +45,7 @@ export default function DashboardPage() {
   const { data: stats, isLoading, isError } = useDashboardStats();
   const { data: leads = [] } = useLeads();
   const { data: appointments = [] } = useAppointments();
+  const { preferences } = useSettings();
 
   if (isLoading) {
     return (
@@ -136,12 +139,15 @@ export default function DashboardPage() {
     proposal: "bg-blue-500/10 text-blue-400 border-blue-500/20",
     won: "bg-emerald-500/10 text-emerald-400 border-emerald-500/20",
   };
+  const dashboardOrder = new Map(preferences.dashboardWidgetOrder.map((id, index) => [id, index]));
+  const isWidgetVisible = (id: DashboardWidgetId) => !preferences.hiddenDashboardWidgets.includes(id);
+  const widgetStyle = (id: DashboardWidgetId) => ({ order: dashboardOrder.get(id) ?? 99 });
 
   return (
-    <div className="p-4 md:p-8 max-w-[1600px] mx-auto space-y-6 md:space-y-8 animate-in fade-in duration-500">
+    <div className="mx-auto flex w-full max-w-[var(--app-content-max-width)] flex-col gap-6 p-4 md:gap-8 md:p-8 animate-in fade-in duration-500">
       <PushNotifications />
       {/* Hero */}
-      <section className="relative overflow-hidden rounded-3xl border border-white/10 bg-black/40 p-6 md:p-8 righttemp-glow">
+      {isWidgetVisible("action-queue") && <section style={widgetStyle("action-queue")} className="relative order-0 overflow-hidden rounded-3xl border border-white/10 bg-black/40 p-6 md:p-8 righttemp-glow">
         <div className="absolute inset-0 pointer-events-none">
           <div className="absolute -top-20 -left-20 h-64 w-64 rounded-full bg-red-600/10 blur-3xl" />
           <div className="absolute -bottom-24 -right-16 h-72 w-72 rounded-full bg-blue-600/10 blur-3xl" />
@@ -323,10 +329,10 @@ export default function DashboardPage() {
             </div>
           </div>
         </div>
-      </section>
+      </section>}
 
       {/* Today's Sales Schedule */}
-      <Card>
+      {isWidgetVisible("sales-schedule") && <section style={widgetStyle("sales-schedule")}><Card>
         <CardHeader className="flex flex-row items-center justify-between gap-3">
           <div>
             <CardTitle className="flex items-center gap-2"><PhoneForwarded className="h-5 w-5 text-blue-400" />Today’s Sales Schedule</CardTitle>
@@ -355,10 +361,10 @@ export default function DashboardPage() {
             </div>
           )}
         </CardContent>
-      </Card>
+      </Card></section>}
 
       {/* Today's Job Schedule */}
-      <section>
+      {isWidgetVisible("job-schedule") && <section style={widgetStyle("job-schedule")}>
         <Card className="border-violet-500/20 bg-card/80 overflow-hidden">
           <CardHeader className="flex flex-row items-start justify-between gap-4">
             <div>
@@ -385,10 +391,10 @@ export default function DashboardPage() {
             )}
           </CardContent>
         </Card>
-      </section>
+      </section>}
 
       {/* Main KPI Cards */}
-      <section className="grid grid-cols-2 xl:grid-cols-4 gap-4">
+      {isWidgetVisible("metrics") && <section style={widgetStyle("metrics")} className="grid grid-cols-2 gap-4 xl:grid-cols-4">
         <Card className="relative overflow-hidden border-white/10 bg-card/80">
           <div className="absolute top-0 left-0 h-1 w-full bg-gradient-to-r from-red-500 to-red-700" />
 
@@ -484,10 +490,10 @@ export default function DashboardPage() {
             </p>
           </CardContent>
         </Card>
-      </section>
+      </section>}
 
       {/* Financial + Operations Cards */}
-      <section className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-4">
+      {isWidgetVisible("financials") && <section style={widgetStyle("financials")} className="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-4">
         <Link href="/invoices">
         <Card className="cursor-pointer border-white/10 bg-gradient-to-br from-card to-blue-950/20 transition-colors hover:border-blue-500/40">
           <CardContent className="p-5">
@@ -573,10 +579,10 @@ export default function DashboardPage() {
             </p>
           </CardContent>
         </Card>
-      </section>
+      </section>}
 
       {/* Charts and Recent Leads */}
-      <section className="grid grid-cols-1 xl:grid-cols-3 gap-6">
+      {isWidgetVisible("insights") && <section style={widgetStyle("insights")} className="grid grid-cols-1 gap-6 xl:grid-cols-3">
         <Card className="xl:col-span-2 border-white/10 bg-card/80">
           <CardHeader className="flex flex-row items-start justify-between">
             <div>
@@ -722,7 +728,7 @@ export default function DashboardPage() {
             </Link>
           </CardContent>
         </Card>
-      </section>
+      </section>}
 
     </div>
   );

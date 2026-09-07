@@ -34,7 +34,7 @@ export default function LoginPage() {
         description: "Welcome back to RightTemp OS.",
       });
 
-      setLocation("/");
+      setLocation("/app");
     } catch (error) {
       toast({
         title: "Unable to sign in",
