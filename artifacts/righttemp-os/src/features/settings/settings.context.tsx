@@ -24,7 +24,9 @@ interface SettingsContextValue {
   branding: OrganizationBranding;
   savedPreferences: UserPreferences;
   savedBranding: OrganizationBranding;
+  role: "owner" | "admin" | "member" | "marketing" | null;
   isAdmin: boolean;
+  canViewMarketing: boolean;
   isLoading: boolean;
   error: Error | null;
   previewPreferences: (preferences: UserPreferences) => void;
@@ -128,7 +130,11 @@ export function SettingsProvider({ children }: { children: ReactNode }) {
     branding,
     savedPreferences,
     savedBranding,
+    role: contextQuery.data?.role ?? null,
     isAdmin: contextQuery.data?.role === "admin" || contextQuery.data?.role === "owner",
+    canViewMarketing: contextQuery.data?.role === "admin"
+      || contextQuery.data?.role === "owner"
+      || contextQuery.data?.role === "marketing",
     isLoading: personalQuery.isLoading || brandingQuery.isLoading || contextQuery.isLoading,
     error: (personalQuery.error ?? brandingQuery.error ?? contextQuery.error) as Error | null,
     previewPreferences: (next) => setPreviewedPreferences(clonePreferences(next)),

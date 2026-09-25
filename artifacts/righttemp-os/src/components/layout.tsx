@@ -1,6 +1,6 @@
 import React from "react";
 import { Link, useLocation } from "wouter";
-import { Activity, Users, LayoutDashboard, FileText, LogOut, ReceiptText, Settings, CalendarDays } from "lucide-react";
+import { Activity, Users, LayoutDashboard, FileText, LogOut, ReceiptText, Settings, CalendarDays, Megaphone, ShieldCheck } from "lucide-react";
 import { supabase } from "@/lib/supabase";
 import { PWAPrompt } from "./pwa-prompt";
 import { useSettings } from "@/features/settings/settings.context";
@@ -8,14 +8,14 @@ import type { NavigationItemId } from "@/features/settings/settings.types";
 
 export function Layout({ children }: { children: React.ReactNode }) {
   const [location] = useLocation();
-  const { preferences, branding } = useSettings();
+  const { preferences, branding, role } = useSettings();
 
   const handleSignOut = async () => {
     await supabase.auth.signOut();
     window.location.reload();
   };
 
-  const navItems: Array<{ id: NavigationItemId; label: string; path: string; icon: typeof LayoutDashboard }> = [
+  const navItems: Array<{ id: NavigationItemId | "marketing" | "team"; label: string; path: string; icon: typeof LayoutDashboard }> = [
     { id: "dashboard", label: "Dashboard", path: "/", icon: LayoutDashboard },
     { id: "leads", label: "Leads", path: "/leads", icon: Activity },
     { id: "estimates", label: "Estimates", path: "/estimates", icon: FileText },
@@ -23,11 +23,21 @@ export function Layout({ children }: { children: React.ReactNode }) {
     { id: "customers", label: "Customers", path: "/customers", icon: Users },
     { id: "invoices", label: "Invoices", path: "/invoices", icon: ReceiptText },
     { id: "settings", label: "Settings", path: "/settings", icon: Settings },
+    { id: "marketing", label: "Marketing", path: "/marketing", icon: Megaphone },
+    { id: "team", label: "Team access", path: "/team", icon: ShieldCheck },
   ];
-  const orderedNavItems = preferences.navigationOrder
+  const orderedOperationalNavItems = preferences.navigationOrder
     .map((id) => navItems.find((item) => item.id === id))
     .filter((item): item is typeof navItems[number] => !!item)
-    .filter((item) => !preferences.hiddenNavigationItems.includes(item.id) || item.id === "settings");
+    .filter((item) => item.id === "settings" || !preferences.hiddenNavigationItems.includes(item.id as NavigationItemId));
+  const orderedNavItems = role === "marketing"
+    ? navItems.filter((item) => item.id === "marketing")
+    : [
+        ...orderedOperationalNavItems,
+        ...(role === "owner" || role === "admin"
+          ? navItems.filter((item) => item.id === "marketing" || item.id === "team")
+          : []),
+      ];
   const mobileNavItems = [
     ...orderedNavItems.filter((item) => item.id !== "settings").slice(0, 4),
     orderedNavItems.find((item) => item.id === "settings"),

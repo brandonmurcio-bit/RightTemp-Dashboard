@@ -56,7 +56,7 @@ export interface OrganizationBranding {
 
 export interface OrganizationContext {
   organizationId: string;
-  role: "owner" | "admin" | "member";
+  role: "owner" | "admin" | "member" | "marketing";
 }
 
 export const RIGHTTEMP_DEFAULT_COLORS: ThemeColors = {

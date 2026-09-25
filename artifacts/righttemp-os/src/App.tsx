@@ -32,36 +32,76 @@ import InvoicesPage from "@/pages/invoices";
 import ServiceLandingPage from "@/pages/service-landing";
 import ReplacementLandingPage from "@/pages/replacement-landing";
 import SettingsPage from "@/pages/settings";
+import MarketingPage from "@/pages/marketing";
+import TeamPage from "@/pages/team";
 import { SettingsProvider } from "@/features/settings/settings.context";
+import { useSettings } from "@/features/settings/settings.context";
 const queryClient = new QueryClient();
+
+function MarketingRoute() {
+  const { canViewMarketing } = useSettings();
+  return canViewMarketing ? <MarketingPage /> : <NotFound />;
+}
+
+function TeamRoute() {
+  const { isAdmin } = useSettings();
+  return isAdmin ? <TeamPage /> : <NotFound />;
+}
+
+function AuthenticatedRoutes() {
+  const { role, isLoading } = useSettings();
+
+  if (isLoading || !role) {
+    return (
+      <div className="min-h-screen flex items-center justify-center bg-muted/30">
+        <p className="text-sm text-muted-foreground">Loading RightTemp OS...</p>
+      </div>
+    );
+  }
+
+  if (role === "marketing") {
+    return (
+      <Layout>
+        <MarketingPage />
+      </Layout>
+    );
+  }
+
+  return (
+    <Layout>
+      <Switch>
+        <Route path="/" component={DashboardPage} />
+        <Route path="/login" component={DashboardPage} />
+
+        <Route path="/marketing" component={MarketingRoute} />
+        <Route path="/team" component={TeamRoute} />
+
+        <Route path="/leads" component={LeadsPage} />
+        <Route path="/leads/:id" component={LeadDetailPage} />
+
+        <Route path="/customers" component={CustomersPage} />
+        <Route path="/customers/:id" component={CustomerDetailPage} />
+
+        <Route path="/jobs" component={JobsPage} />
+        <Route path="/schedule" component={SchedulePage} />
+        <Route path="/jobs/new" component={NewJobPage} />
+        <Route path="/jobs/:id" component={JobDetailPage} />
+
+        <Route path="/estimates" component={EstimatesPage} />
+        <Route path="/invoices" component={InvoicesPage} />
+        <Route path="/purchase-orders" component={PurchaseOrdersPage} />
+        <Route path="/settings" component={SettingsPage} />
+
+        <Route component={NotFound} />
+      </Switch>
+    </Layout>
+  );
+}
 
 function AuthenticatedRouter() {
   return (
     <SettingsProvider>
-      <Layout>
-        <Switch>
-          <Route path="/" component={DashboardPage} />
-          <Route path="/login" component={DashboardPage} />
-
-          <Route path="/leads" component={LeadsPage} />
-          <Route path="/leads/:id" component={LeadDetailPage} />
-
-          <Route path="/customers" component={CustomersPage} />
-          <Route path="/customers/:id" component={CustomerDetailPage} />
-
-          <Route path="/jobs" component={JobsPage} />
-          <Route path="/schedule" component={SchedulePage} />
-          <Route path="/jobs/new" component={NewJobPage} />
-          <Route path="/jobs/:id" component={JobDetailPage} />
-
-          <Route path="/estimates" component={EstimatesPage} />
-          <Route path="/invoices" component={InvoicesPage} />
-          <Route path="/purchase-orders" component={PurchaseOrdersPage} />
-          <Route path="/settings" component={SettingsPage} />
-
-          <Route component={NotFound} />
-        </Switch>
-      </Layout>
+      <AuthenticatedRoutes />
     </SettingsProvider>
   );
 }
