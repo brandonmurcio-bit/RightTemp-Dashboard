@@ -2,6 +2,7 @@ import { CalendarDays, ClipboardList, Pencil, Plus, UserRound } from "lucide-rea
 import { Link } from "wouter";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
+import { JobStatusAction } from "@/components/job-status-action";
 import { useJobs } from "@/features/jobs/jobs.hooks";
 
 const dateFormatter = new Intl.DateTimeFormat(undefined, {
@@ -19,7 +20,7 @@ export default function JobsPage() {
         <div>
           <h1 className="text-3xl font-bold tracking-tight">Jobs</h1>
           <p className="text-muted-foreground mt-2">
-            Scheduled installs and active jobs.
+            Scheduled installs, active work, and completed job history.
           </p>
         </div>
         <div className="flex gap-2">
@@ -46,7 +47,7 @@ export default function JobsPage() {
       {!isLoading && !isError && safeJobs.length === 0 && (
         <Card>
           <CardContent className="py-10 text-center text-muted-foreground">
-            No scheduled jobs yet.
+            No jobs yet.
           </CardContent>
         </Card>
       )}
@@ -54,38 +55,41 @@ export default function JobsPage() {
       {!isLoading && !isError && safeJobs.length > 0 && (
         <div className="grid gap-4 md:grid-cols-2">
           {safeJobs.map((job) => (
-            <Link key={job.id} href={`/jobs/${job.id}`}>
-              <Card className="h-full cursor-pointer transition-colors hover:border-primary/50">
+              <Card key={job.id} className="h-full transition-colors hover:border-primary/50">
                 <CardContent className="space-y-4 p-5">
-                  <div className="flex items-start justify-between gap-3">
-                    <div>
-                      <h2 className="font-semibold text-lg">{job.title}</h2>
-                      <p className="text-xs uppercase tracking-wide text-muted-foreground">
-                        {job.priority} priority
+                  <Link href={`/jobs/${job.id}`} className="block">
+                    <div className="flex items-start justify-between gap-3">
+                      <div>
+                        <h2 className="font-semibold text-lg">{job.title}</h2>
+                        <p className="text-xs uppercase tracking-wide text-muted-foreground">
+                          {job.priority} priority
+                        </p>
+                      </div>
+                      <span className={`rounded-full px-2.5 py-1 text-xs font-medium capitalize ${job.status === "completed" ? "bg-emerald-500/10 text-emerald-400" : "bg-primary/10 text-primary"}`}>
+                        {job.status.replace("_", " ")}
+                      </span>
+                    </div>
+                    <div className="space-y-2 text-sm text-muted-foreground">
+                      <p className="flex items-center gap-2">
+                        <CalendarDays className="h-4 w-4" />
+                        {job.scheduledStart
+                          ? dateFormatter.format(new Date(job.scheduledStart))
+                          : "Not scheduled"}
+                      </p>
+                      <p className="flex items-center gap-2">
+                        <UserRound className="h-4 w-4" />
+                        {job.assignedTo || "Crew not assigned"}
                       </p>
                     </div>
-                    <span className="rounded-full bg-primary/10 px-2.5 py-1 text-xs font-medium capitalize text-primary">
-                      {job.status.replace("_", " ")}
-                    </span>
-                  </div>
-                  <div className="space-y-2 text-sm text-muted-foreground">
-                    <p className="flex items-center gap-2">
-                      <CalendarDays className="h-4 w-4" />
-                      {job.scheduledStart
-                        ? dateFormatter.format(new Date(job.scheduledStart))
-                        : "Not scheduled"}
+                    <p className="flex items-center gap-2 border-t pt-3 text-xs text-primary">
+                      <Pencil className="h-3.5 w-3.5" /> View or edit job
                     </p>
-                    <p className="flex items-center gap-2">
-                      <UserRound className="h-4 w-4" />
-                      {job.assignedTo || "Crew not assigned"}
-                    </p>
+                  </Link>
+                  <div className="flex justify-end border-t pt-3">
+                    <JobStatusAction job={job} compact />
                   </div>
-                  <p className="flex items-center gap-2 border-t pt-3 text-xs text-primary">
-                    <Pencil className="h-3.5 w-3.5" /> Tap to view or edit job
-                  </p>
                 </CardContent>
               </Card>
-            </Link>
           ))}
         </div>
       )}

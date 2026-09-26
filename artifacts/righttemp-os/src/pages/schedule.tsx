@@ -42,7 +42,7 @@ export default function SchedulePage() {
   const [visibleMonth, setVisibleMonth] = useState<Date>(startOfDay(new Date()));
 
   const scheduledJobs = useMemo(
-    () => (jobs ?? []).filter((job) => job.scheduledStart),
+    () => (jobs ?? []).filter((job) => job.scheduledStart && !["completed", "cancelled"].includes(job.status)),
     [jobs],
   );
   const datesWithJobs = useMemo(
@@ -157,7 +157,6 @@ export default function SchedulePage() {
             <div className="mt-4 flex flex-wrap gap-3 border-t pt-4 text-[11px] text-muted-foreground">
               <span><i className="mr-1 inline-block h-2 w-2 rounded-full bg-blue-400" />Scheduled</span>
               <span><i className="mr-1 inline-block h-2 w-2 rounded-full bg-amber-400" />In progress</span>
-              <span><i className="mr-1 inline-block h-2 w-2 rounded-full bg-emerald-400" />Completed</span>
             </div>
           </CardContent>
         </Card>

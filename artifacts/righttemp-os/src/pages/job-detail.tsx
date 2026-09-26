@@ -2,6 +2,7 @@ import { CalendarDays, ChevronLeft, Clock3, FileText, UserRound } from "lucide-r
 import { useLocation, useParams } from "wouter";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { JobStatusAction } from "@/components/job-status-action";
 import { useJob } from "@/features/jobs/jobs.hooks";
 import { JobWalkthroughCard } from "@/components/job-walkthrough-card";
 import { EditJobDialog } from "@/components/edit-job-dialog";
@@ -43,6 +44,7 @@ export default function JobDetailPage() {
         </div>
         </div>
         <div className="flex flex-wrap gap-2">
+          <JobStatusAction job={job} />
           <EditJobDialog job={job} onDeleted={() => setLocation("/jobs")} />
           <Button variant="outline" onClick={() => setLocation(`/estimates?customerId=${job.customerId}`)}>
             <FileText className="h-4 w-4 mr-2" /> Create Estimate
@@ -79,7 +81,12 @@ export default function JobDetailPage() {
             <CardTitle>Status</CardTitle>
           </CardHeader>
           <CardContent className="space-y-3">
-            <p className="capitalize">{job.status.replace("_", " ")}</p>
+            <p className={`font-semibold capitalize ${job.status === "completed" ? "text-emerald-400" : ""}`}>{job.status.replace("_", " ")}</p>
+            {job.completedAt && (
+              <p className="text-sm text-muted-foreground">
+                Completed {dateFormatter.format(new Date(job.completedAt))}
+              </p>
+            )}
             <p className="text-sm capitalize text-muted-foreground">
               {job.priority} priority
             </p>

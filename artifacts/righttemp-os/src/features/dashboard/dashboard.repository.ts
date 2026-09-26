@@ -144,6 +144,7 @@ export async function getDashboardStats(): Promise<DashboardStats> {
   const todaysJobs = jobs
     .filter((row) => {
       if (!row.scheduled_start) return false;
+      if (["completed", "cancelled"].includes(row.status)) return false;
       const scheduledTime = new Date(row.scheduled_start).getTime();
       return scheduledTime >= todayStartMs && scheduledTime < tomorrowStartMs;
     })
@@ -165,6 +166,7 @@ export async function getDashboardStats(): Promise<DashboardStats> {
     scheduledJobs: jobs.filter((row) => row.status === "scheduled").length,
     jobsToday: jobs.filter((row) => {
       if (!row.scheduled_start) return false;
+      if (["completed", "cancelled"].includes(row.status)) return false;
       const scheduledTime = new Date(row.scheduled_start).getTime();
       return scheduledTime >= todayStartMs && scheduledTime < tomorrowStartMs;
     }).length,
